@@ -28,6 +28,17 @@
 #include <ostream>
 #include <fmt/format.h>
 
+extern double ctime_stdw;
+extern double ctime_stdwperfrate;
+extern double ctime_stdwapply;
+extern double stdwapply_counter;
+
+extern double ctime_msw;
+extern double ctime_mswperfrate;
+extern double ctime_mswapply;
+extern double mswapply_counter;
+extern double ctime_mswdatatrans;
+
 namespace Opm
 {
     SimulatorReportSingle SimulatorReportSingle::serializationTestObject()
@@ -179,6 +190,25 @@ namespace Opm
 
             os << fmt::format("  Output write time:          {:7.2f} s",
                               output_write_time + (failureReport ? failureReport->output_write_time : 0.0));
+            os << std::endl;
+
+            os << fmt::format("  Peaceman calc. time:           {:7.5f} s", ctime_stdw);
+            os << std::endl;
+            os << fmt::format("  Stdw computePerfRate time:     {:7.5f} s", ctime_stdwperfrate);
+            os << std::endl;
+            os << fmt::format("  Stdw apply time:               {:7.5f} s", ctime_stdwapply);
+            os << std::endl;
+            os << fmt::format("       Stdw apply counter:         {:7.0f}", stdwapply_counter);
+            os << std::endl;
+            os << fmt::format("  Msw rate calc. time:           {:7.5f} s", ctime_msw);
+            os << std::endl;
+            os << fmt::format("  Msw computePerfRate time:      {:7.5f} s", ctime_mswperfrate);
+            os << std::endl;
+            os << fmt::format("  Msw apply time:                {:7.5f} s", ctime_mswapply);
+            os << std::endl;
+            os << fmt::format("       Msw data transfer time:   {:7.5f} s", ctime_mswdatatrans);
+            os << std::endl;
+            os << fmt::format("       Msw apply counter:          {:7.0f}", mswapply_counter);
             os << std::endl;
         }
 

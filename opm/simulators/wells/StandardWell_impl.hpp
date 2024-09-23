@@ -38,6 +38,11 @@
 #include <functional>
 #include <numeric>
 
+extern double ctime_stdw;
+extern double ctime_stdwperfrate;
+extern double ctime_stdwapply;
+extern double stdwapply_counter;
+
 namespace {
 
 template<class dValue, class Value>
@@ -193,7 +198,8 @@ namespace Opm
         for (int componentIdx = 0; componentIdx < this->numComponents(); ++componentIdx) {
             cmix_s[componentIdx] = obtainN(this->primary_variables_.surfaceVolumeFraction(componentIdx));
         }
-
+        Dune::Timer computePerfRate_timer;
+        computePerfRate_timer.start();
         computePerfRate(mob,
                         pressure,
                         bhp,
@@ -210,6 +216,8 @@ namespace Opm
                         cq_s,
                         perf_rates,
                         deferred_logger);
+        computePerfRate_timer.stop();
+        ctime_stdwperfrate += computePerfRate_timer.lastElapsed();
     }
 
     template<typename TypeTag>
@@ -233,20 +241,23 @@ namespace Opm
                     PerforationRates& perf_rates,
                     DeferredLogger& deferred_logger) const
     {
+        Dune::Timer peaceman_timer;
+        peaceman_timer.start();
         // Pressure drawdown (also used to determine direction of flow)
         const Value well_pressure = bhp + this->connections_.pressure_diff(perf);
         Value drawdown = pressure - well_pressure;
         if (this->isInjector()) {
             drawdown += skin_pressure;
         }
-
+        peaceman_timer.stop();
+        ctime_stdw += peaceman_timer.lastElapsed();
         // producing perforations
         if (drawdown > 0)  {
             // Do nothing if crossflow is not allowed
             if (!allow_cf && this->isInjector()) {
                 return;
             }
-
+            peaceman_timer.start();
             // compute component volumetric rates at standard conditions
             for (int componentIdx = 0; componentIdx < this->numComponents(); ++componentIdx) {
                 const Value cq_p = - Tw[componentIdx] * (mob[componentIdx] * drawdown);
@@ -258,6 +269,8 @@ namespace Opm
             } else if (FluidSystem::phaseIsActive(FluidSystem::waterPhaseIdx) && FluidSystem::phaseIsActive(FluidSystem::gasPhaseIdx)) {
                 gasWaterPerfRateProd(cq_s, perf_rates, rvw, rsw);
             }
+            peaceman_timer.stop();
+            ctime_stdw += peaceman_timer.lastElapsed();
         } else {
             // Do nothing if crossflow is not allowed
             if (!allow_cf && this->isProducer()) {
@@ -301,7 +314,7 @@ namespace Opm
                     volumeRatio += cmix_s[gasCompIdx] / b_perfcells_dense[gasCompIdx];
                 }
             }
-
+            peaceman_timer.start();
             // injecting connections total volumerates at standard conditions
             for (int componentIdx = 0; componentIdx < this->numComponents(); ++componentIdx) {
                 const Value cqt_i = - Tw[componentIdx] * (total_mob_dense * drawdown);
@@ -321,6 +334,8 @@ namespace Opm
                                         pressure, deferred_logger);
                 }
             }
+            peaceman_timer.stop();
+            ctime_stdw += peaceman_timer.lastElapsed();
         }
     }
 
@@ -1398,7 +1413,15 @@ namespace Opm
             return;
         }
 
+        stdwapply_counter++;
+        Dune::Timer applyMethod_timer;
+        applyMethod_timer.start();
+
+        // apply method for stdw
         this->linSys_.apply(x, Ax);
+
+        applyMethod_timer.stop();
+        ctime_stdwapply += applyMethod_timer.lastElapsed();
     }
 
 

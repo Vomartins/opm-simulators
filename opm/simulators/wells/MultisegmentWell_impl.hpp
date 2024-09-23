@@ -43,6 +43,11 @@
 #include <opm/simulators/linalg/bda/WellContributions.hpp>
 #endif
 
+extern double ctime_msw;
+extern double ctime_mswperfrate;
+extern double ctime_mswapply;
+extern double mswapply_counter;
+
 namespace Opm
 {
 
@@ -229,7 +234,17 @@ namespace Opm
             return;
         }
 
+        mswapply_counter++;
+
+        Dune::Timer applyMethod_timer;
+        applyMethod_timer.start();
+
+        // apply method for msw
+
         this->linSys_.apply(x, Ax);
+
+        applyMethod_timer.stop();
+        ctime_mswapply += applyMethod_timer.lastElapsed();
     }
 
 
@@ -867,6 +882,8 @@ namespace Opm
                     PerforationRates& perf_rates,
                     DeferredLogger& deferred_logger) const
     {
+        Dune::Timer peaceman_timer;
+        peaceman_timer.start();
         // pressure difference between the segment and the perforation
         const Value perf_seg_press_diff = this->gravity() * segment_density *
                                           this->segments_.perforation_depth_diff(perf);
@@ -882,14 +899,15 @@ namespace Opm
 
         // Pressure drawdown (also used to determine direction of flow)
         const Value drawdown = cell_press_at_perf - perf_press;
-
+        peaceman_timer.stop();
+        ctime_msw += peaceman_timer.lastElapsed();
         // producing perforations
         if (drawdown > 0.0) {
             // Do nothing if crossflow is not allowed
             if (!allow_cf && this->isInjector()) {
                 return;
             }
-
+            peaceman_timer.start();
             // compute component volumetric rates at standard conditions
             for (int comp_idx = 0; comp_idx < this->numComponents(); ++comp_idx) {
                 const Value cq_p = - Tw[comp_idx] * (mob_perfcells[comp_idx] * drawdown);
@@ -904,6 +922,8 @@ namespace Opm
                 cq_s[gasCompIdx] += rs * cq_s_oil;
                 cq_s[oilCompIdx] += rv * cq_s_gas;
             }
+            peaceman_timer.stop();
+            ctime_msw += peaceman_timer.lastElapsed();
         } else { // injecting perforations
             // Do nothing if crossflow is not allowed
             if (!allow_cf && this->isProducer()) {
@@ -955,14 +975,17 @@ namespace Opm
                     volume_ratio += cmix_s[gasCompIdx] / b_perfcells[gasCompIdx];
                 }
             }
+            peaceman_timer.start();
             // injecting connections total volumerates at standard conditions
             for (int componentIdx = 0; componentIdx < this->numComponents(); ++componentIdx) {
                 const Value cqt_i = - Tw[componentIdx] * (total_mob * drawdown);
                 Value cqt_is = cqt_i / volume_ratio;
                 cq_s[componentIdx] = cmix_s[componentIdx] * cqt_is;
             }
+            peaceman_timer.stop();
+            ctime_msw += peaceman_timer.lastElapsed();
         } // end for injection perforations
-
+        peaceman_timer.start();
         // calculating the perforation solution gas rate and solution oil rates
         if (this->isProducer()) {
             if (FluidSystem::phaseIsActive(FluidSystem::oilPhaseIdx) && FluidSystem::phaseIsActive(FluidSystem::gasPhaseIdx)) {
@@ -985,6 +1008,8 @@ namespace Opm
                 perf_rates.dis_gas = getValue(rs) * (getValue(cq_s[oilCompIdx]) - getValue(rv) * getValue(cq_s[gasCompIdx])) / d;
             }
         }
+        peaceman_timer.stop();
+        ctime_msw += peaceman_timer.lastElapsed();
     }
 
     template <typename TypeTag>
@@ -1043,7 +1068,8 @@ namespace Opm
         for (int comp_idx = 0; comp_idx < this->numComponents(); ++comp_idx) {
             cmix_s[comp_idx] = obtainN(this->primary_variables_.surfaceVolumeFraction(seg, comp_idx));
         }
-
+        Dune::Timer computePerfRate_timer;
+        computePerfRate_timer.start();
         this->computePerfRate(pressure_cell,
                               rs,
                               rv,
@@ -1059,6 +1085,8 @@ namespace Opm
                               perf_press,
                               perf_rates,
                               deferred_logger);
+        computePerfRate_timer.stop();
+        ctime_mswperfrate += computePerfRate_timer.lastElapsed();
     }
 
     template <typename TypeTag>
