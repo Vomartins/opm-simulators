@@ -35,3 +35,6 @@ build/
 
 # emacs directory setting:
 .dir-locals.el
+
+# Kdevelop files
+*.kdev4
