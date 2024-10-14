@@ -42,6 +42,8 @@
 #include <cstddef>
 #include <stdexcept>
 
+#include <iostream>
+
 namespace Opm {
 
 template<class Scalar, int numWellEq, int numEq>

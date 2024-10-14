@@ -38,6 +38,10 @@ extern double ctime_mswperfrate;
 extern double ctime_mswapply;
 extern double mswapply_counter;
 extern double ctime_mswdatatrans;
+extern double ctime_mswdatatransd;
+extern double ctime_welllsD;
+extern double ctime_alloc;
+extern double ctime_rocsoldatatrans;
 
 namespace Opm
 {
@@ -204,9 +208,17 @@ namespace Opm
             os << std::endl;
             os << fmt::format("  Msw computePerfRate time:      {:7.5f} s", ctime_mswperfrate);
             os << std::endl;
+            os << fmt::format("  Msw data trans time (xr, z1):  {:7.5f} s", ctime_mswdatatrans);
+            os << std::endl;
             os << fmt::format("  Msw apply time:                {:7.5f} s", ctime_mswapply);
             os << std::endl;
-            os << fmt::format("       Msw data transfer time:   {:7.5f} s", ctime_mswdatatrans);
+            os << fmt::format("       Msw data trans time (z1, z2):      {:7.5f} s", ctime_rocsoldatatrans);
+            os << std::endl;
+            os << fmt::format("       Msw alloc time:                    {:7.5f} s", ctime_alloc);
+            os << std::endl;
+            os << fmt::format("       Msw data transfer time (D):        {:7.5f} s", ctime_mswdatatransd);
+            os << std::endl;
+            os << fmt::format("       Msw linear system solve (D):       {:7.5f} s", ctime_welllsD);
             os << std::endl;
             os << fmt::format("       Msw apply counter:          {:7.0f}", mswapply_counter);
             os << std::endl;

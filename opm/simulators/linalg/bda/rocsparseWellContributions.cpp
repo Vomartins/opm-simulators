@@ -44,6 +44,12 @@
 #include <hip/hip_runtime.h>
 
 #include <dune/common/timer.hh>
+
+#include <iostream>
+#include <vector>
+
+#include <fstream>
+
 extern double ctime_mswapply;
 extern double mswapply_counter;
 extern double ctime_mswdatatrans;
@@ -141,6 +147,7 @@ __global__ void stdwell_apply(
         y[colIdx*dim + c] -= temp;
     }
 }
+
 #endif
 
 
@@ -176,13 +183,15 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     ctime_mswdatatrans += dataTrans_timer.lastElapsed();
 
     Dune::Timer applyMethod_timer;
-    applyMethod_timer.start();
+
     // actually apply MultisegmentWells
+    // std::cout << "number of segments: " << size(multisegments) << std::endl;
     for (auto& well : multisegments) {
+        applyMethod_timer.start();
         well->apply(h_x.data(), h_y.data());
+        applyMethod_timer.stop();
+        ctime_mswapply += applyMethod_timer.lastElapsed();
     }
-    applyMethod_timer.stop();
-    ctime_mswapply += applyMethod_timer.lastElapsed();
 
     dataTrans_timer.start();
     // copy vector y from CPU to GPU
@@ -193,6 +202,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
 }
 
 void WellContributionsRocsparse::apply(double *d_x, double *d_y){
+    //std::cout << "number of standard wells: " << num_std_wells << std::endl;
     if(num_std_wells > 0){
         apply_stdwells(d_x, d_y);
     }

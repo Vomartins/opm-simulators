@@ -152,6 +152,31 @@ void csrPatternToCsc(int *CSRColIndices, int *CSRRowPointers, int *CSCRowIndices
     }
 }
 
+double* squareCSCtoMatrix(std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
+{
+    int lda = size(Dcols)-1;
+    int nnzs = size(Dvals);
+
+    double* Dmatrix = (double*)malloc(sizeof(double)*lda*lda);
+
+    std::vector<int> Cols(nnzs);
+
+    for(int i=0; i<lda; i++){
+      for(int j=Dcols[i];j<Dcols[i+1];j++){
+        Cols[j] = i;
+      }
+    }
+
+    for(int i=0; i<(lda*lda); i++){
+        Dmatrix[i] = 0;
+    }
+
+    for(int i=0; i<nnzs; i++){
+        Dmatrix[Drows[i]+Cols[i]*lda] = Dvals[i];
+    }
+
+    return Dmatrix;
+}
 
 } // namespace Accelerator
 } // namespace Opm

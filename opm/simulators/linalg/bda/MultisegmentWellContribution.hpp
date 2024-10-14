@@ -17,6 +17,8 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <iostream>
+
 #ifndef MULTISEGMENTWELLCONTRIBUTION_HEADER_INCLUDED
 #define MULTISEGMENTWELLCONTRIBUTION_HEADER_INCLUDED
 
@@ -30,6 +32,10 @@
 #include<umfpack.h>
 #endif
 #include <dune/common/version.hh>
+#include <hip/hip_runtime_api.h>
+#include <hip/hip_version.h>
+#include <rocblas/rocblas.h>
+#include <rocsolver/rocsolver.h>
 
 namespace Opm
 {
@@ -68,6 +74,24 @@ private:
     std::vector<double> z2;          // z2 = D^-1 * B * x
     void *UMFPACK_Symbolic, *UMFPACK_Numeric;
 
+    // RocSOLVER
+    rocblas_int rocM;
+    rocblas_int rocN;
+    rocblas_int Nrhs = 1;
+    rocblas_int lda;
+    rocblas_int ldb;
+    rocblas_int *info;
+    rocblas_int *ipiv;
+    int ipivDim;
+    double *d_Dmatrix_hip;
+    void *d_buffer;
+    rocblas_handle handle;
+    rocsolver_rfinfo ilu_info;
+    rocblas_operation operation = rocblas_operation_none;
+    double *z_hip;
+
+    int matrixDtransfer;
+
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well
     unsigned int getColIdx(unsigned int idx);
@@ -99,7 +123,7 @@ public:
                                  unsigned int Mb,
                                  std::vector<double> &Bvalues, std::vector<unsigned int> &BcolIndices, std::vector<unsigned int> &BrowPointers,
                                  unsigned int DnumBlocks, double *Dvalues, UMFPackIndex *DcolPointers,
-                                 UMFPackIndex *DrowIndices, std::vector<double> &Cvalues);
+                                 UMFPackIndex *DrowIndices, std::vector<double> &Cvalues, int matrixDtrans);
 
     /// Destroy a MultisegmentWellContribution, and free memory
     ~MultisegmentWellContribution();
@@ -109,6 +133,14 @@ public:
     /// \param[in] h_x          vector x, must be on CPU
     /// \param[inout] h_y       vector y, must be on CPU
     void apply(double *h_x, double *h_y);
+
+    void hipAlloc();
+
+    void matrixDtoDevice();
+
+    void freeRocSOLVER();
+
+    void solveSystem();
 };
 
 } //namespace Opm

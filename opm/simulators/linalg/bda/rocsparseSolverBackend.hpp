@@ -81,6 +81,7 @@ private:
     void *d_buffer; // buffer space, used by rocsparse ilu0 analysis
     int  ver;
     char rev[64];
+    int matrixDtransfer = true;
 
 
     /// Solve linear system using ilu0-bicgstab

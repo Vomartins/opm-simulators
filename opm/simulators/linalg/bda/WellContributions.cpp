@@ -167,7 +167,8 @@ void WellContributions::addMultisegmentWellContribution(unsigned int dim_,
                                                                            Dvalues,
                                                                            DcolPointers,
                                                                            DrowIndices,
-                                                                           Cvalues));
+                                                                           Cvalues,
+                                                                           matrixDtransfer));
     ++num_ms_wells;
 }
 

@@ -58,6 +58,8 @@ void findLevelScheduling(int *CSRColIndices, int *CSRRowPointers, int *CSCRowInd
 /// \param[in] Nb                number of blockrows in the matrix
 void csrPatternToCsc(int *CSRColIndices, int *CSRRowPointers, int *CSCRowIndices, int *CSCColPointers, int Nb);
 
+double* squareCSCtoMatrix(std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols);
+
 } // namespace Accelerator
 } // namespace Opm
 
