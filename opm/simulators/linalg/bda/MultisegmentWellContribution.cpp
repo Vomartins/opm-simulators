@@ -60,73 +60,73 @@ extern double ctime_rocsoldatatrans;
     }                                                                          \
   } while (0)
 
-void saveBCRSMatrixVectors(const std::vector<double>& vecVals, const std::vector<int>& vecCols, const std::vector<int>& vecRows, const std::string& filename) {
-    std::ofstream outFile(filename, std::ios::out | std::ios::binary);
-    if (!outFile) {
-        std::cerr << "Error opening file for writing." << std::endl;
-        return;
+template<class Scalar>
+__global__ void blocksrmv_k(const Scalar *vals,
+                                   const unsigned int *cols,
+                                   const unsigned int *rows,
+                                   const unsigned int Nb,
+                                   const Scalar *x,
+                                   const Scalar *rhs,
+                                   Scalar *out,
+                                   const unsigned int block_dimM,
+                                   const unsigned int block_dimN,
+                                   const double op_sign)
+{
+    extern __shared__ Scalar tmp[];
+    const unsigned int warpsize = warpSize;
+    const unsigned int bsize = blockDim.x;
+    const unsigned int gid = blockDim.x * blockIdx.x + threadIdx.x;
+    const unsigned int idx_b = gid / bsize;
+    const unsigned int idx_t = threadIdx.x;
+    unsigned int idx = idx_b * bsize + idx_t;
+    const unsigned int bsM = block_dimM;
+    const unsigned int bsN = block_dimN;
+    const unsigned int num_active_threads = (warpsize/bsM/bsN)*bsM*bsN;
+    const unsigned int num_blocks_per_warp = warpsize/bsM/bsN;
+    const unsigned int NUM_THREADS = gridDim.x;
+    const unsigned int num_warps_in_grid = NUM_THREADS / warpsize;
+    unsigned int target_block_row = idx / warpsize;
+    const unsigned int lane = idx_t % warpsize;
+    const unsigned int c = (lane / bsM) % bsN;
+    const unsigned int r = lane % bsM;
+
+    // for 3x3 blocks:
+    // num_active_threads: 27 (CUDA) vs 63 (ROCM)
+    // num_blocks_per_warp: 3 (CUDA) vs  7 (ROCM)
+    unsigned int offsetTarget = warpsize == 64 ? 48 : 32;
+
+    while(target_block_row < Nb){
+        unsigned int first_block = rows[target_block_row];
+        unsigned int last_block = rows[target_block_row+1];
+        unsigned int block = first_block + lane / (bsM*bsN);
+        Scalar local_out = 0.0;
+
+        if(lane < num_active_threads){
+            for(; block < last_block; block += num_blocks_per_warp){
+                Scalar x_elem = x[cols[block]*bsN + c];
+                Scalar A_elem = vals[block*bsM*bsN + c + r*bsN];
+                local_out += x_elem * A_elem;
+            }
+        }
+
+        // do reduction in shared mem
+        tmp[lane] = local_out;
+
+        for(unsigned int offset = block_dimM; offset <= offsetTarget; offset <<= 1)
+        {
+            if (lane + offset < warpsize)
+            {
+                tmp[lane] += tmp[lane + offset];
+            }
+            __syncthreads();
+        }
+
+        if(lane < bsM){
+            unsigned int row = target_block_row*bsM + lane;
+            out[row] = rhs[row] + op_sign*tmp[lane];
+        }
+        target_block_row += num_warps_in_grid;
     }
-
-    // Write values vector
-    size_t size1 = vecVals.size();
-    outFile.write(reinterpret_cast<const char*>(&size1), sizeof(size1));
-    outFile.write(reinterpret_cast<const char*>(vecVals.data()), size1 * sizeof(double));
-
-    // Write coloumn vector
-    size_t size2 = vecCols.size();
-    outFile.write(reinterpret_cast<const char*>(&size2), sizeof(size2));
-    outFile.write(reinterpret_cast<const char*>(vecCols.data()), size2 * sizeof(int));
-
-    // Write row vector
-    size_t size3 = vecRows.size();
-    outFile.write(reinterpret_cast<const char*>(&size3), sizeof(size3));
-    outFile.write(reinterpret_cast<const char*>(vecRows.data()), size3 * sizeof(int));
-
-    outFile.close();
-}
-
-void saveBCRSMatrixVectors(const std::vector<double>& vecVals, const std::vector<unsigned int>& vecCols, const std::vector<unsigned int>& vecRows, const std::string& filename) {
-    std::ofstream outFile(filename, std::ios::out | std::ios::binary);
-    if (!outFile) {
-        std::cerr << "Error opening file for writing." << std::endl;
-        return;
-    }
-
-    // Write values vector
-    size_t size1 = vecVals.size();
-    outFile.write(reinterpret_cast<const char*>(&size1), sizeof(size1));
-    outFile.write(reinterpret_cast<const char*>(vecVals.data()), size1 * sizeof(double));
-
-    // Write coloumn vector
-    size_t size2 = vecCols.size();
-    std::cout << size2 << std::endl;
-    outFile.write(reinterpret_cast<const char*>(&size2), sizeof(size2));
-    outFile.write(reinterpret_cast<const char*>(vecCols.data()), size2 * sizeof(unsigned int));
-
-    // Write row vector
-    size_t size3 = vecRows.size();
-    std::cout << size3 << std::endl;
-    outFile.write(reinterpret_cast<const char*>(&size3), sizeof(size3));
-    outFile.write(reinterpret_cast<const char*>(vecRows.data()), size3 * sizeof(unsigned int));
-
-    outFile.close();
-}
-
-void saveResVector(const std::vector<double>& vecRes, const std::string& filename) {
-    std::ofstream outFile(filename, std::ios::out | std::ios::binary);  // Open file in binary mode
-    if (!outFile) {
-        std::cerr << "Error opening file for writing." << std::endl;
-        return;
-    }
-
-    // Save vector size first to know how many elements to read back later
-    size_t size = vecRes.size();
-    outFile.write(reinterpret_cast<const char*>(&size), sizeof(size));
-
-    // Write the contents of the vector
-    outFile.write(reinterpret_cast<const char*>(vecRes.data()), size * sizeof(double));
-
-    outFile.close();
 }
 
 namespace Opm
@@ -161,19 +161,6 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
     matrixDtransfer = matrixDtrans;
 
-    // Save B, C, and D vectors
-    /*
-    if(well_systems == 0.0){
-        char name[50];
-        snprintf(name, sizeof(name), "matrix-A-%d.bin", static_cast<int>(well_counter));
-        saveBCRSMatrixVectors(Dvals, Dcols, Drows, name);
-        name[7] = 'B';
-        saveBCRSMatrixVectors(Bvals, Bcols, Brows, name);
-        name[7] = 'C';
-        saveBCRSMatrixVectors(Cvals, Bcols, Brows, name);
-        well_counter++;
-    }
-    */
     z1.resize(Mb * dim_wells);
     z2.resize(Mb * dim_wells);
 
@@ -194,13 +181,24 @@ void MultisegmentWellContribution::hipAlloc()
     HIP_CALL(hipMalloc(&d_Dmatrix_hip, sizeof(double)*rocM*rocN));
     HIP_CALL(hipMalloc(&info, sizeof(rocblas_int)));
     HIP_CALL(hipMalloc(&z_hip, sizeof(double)*ldb*Nrhs));
+    HIP_CALL(hipMalloc(&rhs_hip, sizeof(double)*ldb*Nrhs));
+    HIP_CALL(hipMalloc(&d_Cvals_hip, sizeof(double)*size(Cvals)));
+    HIP_CALL(hipMalloc(&d_Bvals_hip, sizeof(double)*size(Bvals)));
+    HIP_CALL(hipMalloc(&d_Bcols_hip, sizeof(int)*size(Bcols)));
+    HIP_CALL(hipMalloc(&d_Brows_hip, sizeof(int)*size(Brows)));
 }
 
-void MultisegmentWellContribution::matrixDtoDevice()
+void MultisegmentWellContribution::matricesToDevice()
 {
     double* Dmatrix = Accelerator::squareCSCtoMatrix(Dvals, Drows, Dcols);
 
     HIP_CALL(hipMemcpy(d_Dmatrix_hip, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Cvals_hip, Cvals.data(), size(Cvals)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bvals_hip, Bvals.data(), size(Bvals)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bcols_hip, Bcols.data(), size(Bcols)*sizeof(int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Brows_hip, Brows.data(), size(Brows)*sizeof(int), hipMemcpyHostToDevice));
+    std::vector<double> rhs(ldb*Nrhs, 0.0);
+    HIP_CALL(hipMemcpy(rhs_hip, rhs.data(), ldb*Nrhs*sizeof(double), hipMemcpyHostToDevice));
 }
 
 void MultisegmentWellContribution::freeRocSOLVER()
@@ -208,6 +206,11 @@ void MultisegmentWellContribution::freeRocSOLVER()
     HIP_CALL(hipFree(ipiv));
     HIP_CALL(hipFree(d_Dmatrix_hip));
     HIP_CALL(hipFree(z_hip));
+    HIP_CALL(hipFree(d_Cvals_hip));
+    HIP_CALL(hipFree(d_Bvals_hip));
+    HIP_CALL(hipFree(d_Bcols_hip));
+    HIP_CALL(hipFree(d_Brows_hip));
+    HIP_CALL(hipFree(rhs_hip));
     HIP_CALL(hipFree(info));
     ROCSOLVER_CALL(rocblas_destroy_handle(handle));
 }
@@ -221,14 +224,40 @@ void MultisegmentWellContribution::solveSystem()
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix_hip, lda, ipiv, z_hip, ldb));
 }
 
+void MultisegmentWellContribution::blocksrmv(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign)
+{
+  unsigned int blockDim = 32;
+  unsigned int number_wg = std::ceil(Nb/blockDim);
+  unsigned int num_work_groups = number_wg == 0 ? 1 : number_wg;
+  unsigned int gridDim = num_work_groups*blockDim;
+  unsigned int shared_mem_size = blockDim*sizeof(double);
+
+  blocksrmv_k<<<dim3(gridDim), dim3(blockDim), shared_mem_size>>>(vals, cols, rows, Nb, x, rhs, out, block_dimM, block_dimN, op_sign);
+
+  HIP_CALL(hipGetLastError()); // Check for errors
+  HIP_CALL(hipDeviceSynchronize()); // Synchronize to ensure completion
+}
+
 // Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
 // h_x and h_y reside on host
 // y -= (C^T * (D^-1 * (B * x)))
-void MultisegmentWellContribution::apply(double *h_x, double *h_y)
+void MultisegmentWellContribution::apply(double *d_x, double *d_y/*, double *h_x, double *h_y*/)
 {
+    Dune::Timer alloc_timer;
+    alloc_timer.start();
+    hipAlloc();
+    alloc_timer.stop();
+    ctime_alloc += alloc_timer.lastElapsed();
+
+    Dune::Timer dataTransD_timer;
+    dataTransD_timer.start();
+    matricesToDevice();
+    dataTransD_timer.stop();
+    ctime_mswdatatransd += dataTransD_timer.lastElapsed();
 
     OPM_TIMEBLOCK(apply);
     // reset z1 and z2
+    /*
     std::fill(z1.begin(), z1.end(), 0.0);
     std::fill(z2.begin(), z2.end(), 0.0);
 
@@ -246,54 +275,30 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
             }
         }
     }
+    */
 
-    Dune::Timer alloc_timer;
-    alloc_timer.start();
-    hipAlloc();
-    alloc_timer.stop();
-    ctime_alloc += alloc_timer.lastElapsed();
-
-    Dune::Timer dataTransWell_timer;
+    //Dune::Timer dataTransWell_timer;
+    /*
     dataTransWell_timer.start();
     HIP_CALL(hipMemcpy(z_hip, z1.data(), ldb*Nrhs*sizeof(double), hipMemcpyHostToDevice));
     dataTransWell_timer.stop();
     ctime_rocsoldatatrans += dataTransWell_timer.lastElapsed();
-
-    if(matrixDtransfer == 0){
-        Dune::Timer dataTransD_timer;
-        dataTransD_timer.start();
-        matrixDtoDevice();
-        dataTransD_timer.stop();
-        ctime_mswdatatransd += dataTransD_timer.lastElapsed();
-        //matrixDtransfer++;
-    }
-
+    */
     Dune::Timer linearSysD_timer;
     linearSysD_timer.start();
+    blocksrmv(d_Bvals_hip, d_Bcols_hip, d_Brows_hip, d_x, rhs_hip, z_hip, size(Brows)-1, dim_wells, dim, +1.0);
     solveSystem();
+    blocksrmv(d_Cvals_hip, d_Bcols_hip, d_Brows_hip, z_hip, d_y, d_y, size(Brows)-1, dim_wells, dim, -1.0);
     linearSysD_timer.stop();
     ctime_welllsD += linearSysD_timer.lastElapsed();
-
+    /*
     dataTransWell_timer.start();
     HIP_CALL(hipMemcpy(z2.data(), z_hip, rocM*sizeof(double),hipMemcpyDeviceToHost));
     dataTransWell_timer.stop();
     ctime_rocsoldatatrans += dataTransWell_timer.lastElapsed();
-
+    */
     freeRocSOLVER();
 
-    /*
-    char name[50];
-    if(well_systems == 0.0){
-        snprintf(name, sizeof(name), "vector-Res-%d.bin", static_cast<int>(vec_counter));
-        size_t size = (*std::max_element(Bcols.begin(),Bcols.end())+1)*dim;
-        std::cout << size << std::endl;
-        std::vector<double> vech_x(h_x,h_x+size);
-        saveResVector(vech_x, name);
-        std::cout << Mb << std::endl;
-        std::cout << dim << std::endl;
-        std::cout << dim_wells << std::endl;
-    }
-    */
     // z2 = D^-1 * (B * x)
     // umfpack
     /*
@@ -305,14 +310,6 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
     std::cout << std::endl;
     */
     /*
-    if(well_systems == 0.0){
-        name[7] = 'S';
-        name[8] = 'o';
-        name[9] = 'l';
-        saveResVector(z2, name);
-        vec_counter++;
-    }
-    */
     // y -= (C^T * z2)
     // y -= (C^T * (D^-1 * (B * x)))
     for (unsigned int row = 0; row < Mb; ++row) {
@@ -328,6 +325,7 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
             }
         }
     }
+    */
 }
 
 #if HAVE_CUDA

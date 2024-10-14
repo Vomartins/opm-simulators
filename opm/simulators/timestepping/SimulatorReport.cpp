@@ -216,9 +216,9 @@ namespace Opm
             os << std::endl;
             os << fmt::format("       Msw alloc time:                    {:7.5f} s", ctime_alloc);
             os << std::endl;
-            os << fmt::format("       Msw data transfer time (D):        {:7.5f} s", ctime_mswdatatransd);
+            os << fmt::format("       Msw data transfer time (B, C, D):  {:7.5f} s", ctime_mswdatatransd);
             os << std::endl;
-            os << fmt::format("       Msw linear system solve (D):       {:7.5f} s", ctime_welllsD);
+            os << fmt::format("       Msw Dz=Bx, y = y-Cz:               {:7.5f} s", ctime_welllsD);
             os << std::endl;
             os << fmt::format("       Msw apply counter:          {:7.0f}", mswapply_counter);
             os << std::endl;
