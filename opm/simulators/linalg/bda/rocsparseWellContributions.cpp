@@ -176,14 +176,13 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     /*
     Dune::Timer dataTrans_timer;
     dataTrans_timer.start();
-    HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
+    //HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
     HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
     HIP_CHECK(hipStreamSynchronize(stream));
     dataTrans_timer.stop();
     ctime_mswdatatrans += dataTrans_timer.lastElapsed();
     */
     Dune::Timer applyMethod_timer;
-    std::cout << N << std::endl;
 
     // actually apply MultisegmentWells
     // std::cout << "number of segments: " << size(multisegments) << std::endl;

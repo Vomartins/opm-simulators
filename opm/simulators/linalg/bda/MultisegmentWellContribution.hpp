@@ -94,7 +94,6 @@ private:
     rocblas_operation operation = rocblas_operation_none;
     double *z_hip;
     double *rhs_hip;
-
     int matrixDtransfer;
 
     /// Translate the columnIndex if needed
@@ -137,7 +136,7 @@ public:
     /// performs y -= (C^T * (D^-1 * (B*x))) for MultisegmentWell
     /// \param[in] h_x          vector x, must be on CPU
     /// \param[inout] h_y       vector y, must be on CPU
-    void apply(double *d_x, double *d_y/* , double *h_x, double *h_y*/);
+    void apply(double *d_x, double *d_y/*, double *h_x, double *h_y*/);
 
     void hipAlloc();
 
@@ -147,7 +146,9 @@ public:
 
     void solveSystem();
 
-    void blocksrmv(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
+    void blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
+
+    void blocksrmvCtz(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
 };
 
 } //namespace Opm
