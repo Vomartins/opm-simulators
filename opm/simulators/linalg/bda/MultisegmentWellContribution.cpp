@@ -52,8 +52,8 @@ extern double ctime_rocsoldatatrans;
 
 #define ROCSOLVER_CALL(call)                                                   \
   do {                                                                         \
-    rocblas_status err = call;                                               \
-    if (rocblas_status_success != err) {                                     \
+    rocblas_status err = call;                                                 \
+    if (rocblas_status_success != err) {                                       \
       printf("rocSOLVER ERROR (code = %d) at %s:%d\n", err, __FILE__,          \
              __LINE__);                                                        \
       exit(1);                                                                 \
@@ -62,15 +62,15 @@ extern double ctime_rocsoldatatrans;
 
 template<class Scalar>
 __global__ void blocksrmv_k(const Scalar *vals,
-                                   const unsigned int *cols,
-                                   const unsigned int *rows,
-                                   const unsigned int Nb,
-                                   const Scalar *x,
-                                   const Scalar *rhs,
-                                   Scalar *out,
-                                   const unsigned int block_dimM,
-                                   const unsigned int block_dimN,
-                                   const double op_sign)
+                            const unsigned int *cols,
+                            const unsigned int *rows,
+                            const unsigned int Nb,
+                            const Scalar *x,
+                            const Scalar *rhs,
+                            Scalar *out,
+                            const unsigned int block_dimM,
+                            const unsigned int block_dimN,
+                            const double op_sign)
 {
     extern __shared__ Scalar tmp[];
     const unsigned int warpsize = warpSize;
@@ -184,8 +184,8 @@ void MultisegmentWellContribution::hipAlloc()
     HIP_CALL(hipMalloc(&rhs_hip, sizeof(double)*ldb*Nrhs));
     HIP_CALL(hipMalloc(&d_Cvals_hip, sizeof(double)*size(Cvals)));
     HIP_CALL(hipMalloc(&d_Bvals_hip, sizeof(double)*size(Bvals)));
-    HIP_CALL(hipMalloc(&d_Bcols_hip, sizeof(int)*size(Bcols)));
-    HIP_CALL(hipMalloc(&d_Brows_hip, sizeof(int)*size(Brows)));
+    HIP_CALL(hipMalloc(&d_Bcols_hip, sizeof(unsigned int)*size(Bcols)));
+    HIP_CALL(hipMalloc(&d_Brows_hip, sizeof(unsigned int)*size(Brows)));
 }
 
 void MultisegmentWellContribution::matricesToDevice()
@@ -195,8 +195,8 @@ void MultisegmentWellContribution::matricesToDevice()
     HIP_CALL(hipMemcpy(d_Dmatrix_hip, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Cvals_hip, Cvals.data(), size(Cvals)*sizeof(double), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Bvals_hip, Bvals.data(), size(Bvals)*sizeof(double), hipMemcpyHostToDevice));
-    HIP_CALL(hipMemcpy(d_Bcols_hip, Bcols.data(), size(Bcols)*sizeof(int), hipMemcpyHostToDevice));
-    HIP_CALL(hipMemcpy(d_Brows_hip, Brows.data(), size(Brows)*sizeof(int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bcols_hip, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Brows_hip, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
     std::vector<double> rhs(ldb*Nrhs, 0.0);
     HIP_CALL(hipMemcpy(rhs_hip, rhs.data(), ldb*Nrhs*sizeof(double), hipMemcpyHostToDevice));
 }
@@ -226,7 +226,7 @@ void MultisegmentWellContribution::solveSystem()
 
 void MultisegmentWellContribution::blocksrmv(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign)
 {
-  unsigned int blockDim = 32;
+  unsigned int blockDim = 64;
   unsigned int number_wg = std::ceil(Nb/blockDim);
   unsigned int num_work_groups = number_wg == 0 ? 1 : number_wg;
   unsigned int gridDim = num_work_groups*blockDim;
@@ -288,7 +288,8 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y/*, double *h_x
     linearSysD_timer.start();
     blocksrmv(d_Bvals_hip, d_Bcols_hip, d_Brows_hip, d_x, rhs_hip, z_hip, size(Brows)-1, dim_wells, dim, +1.0);
     solveSystem();
-    blocksrmv(d_Cvals_hip, d_Bcols_hip, d_Brows_hip, z_hip, d_y, d_y, size(Brows)-1, dim_wells, dim, -1.0);
+    std::cout << "Linear system solver ok" << std::endl;
+    blocksrmv(d_Cvals_hip, d_Bcols_hip, d_Brows_hip, z_hip, d_y, d_y, size(Brows)-1, dim, dim_wells, -1.0);
     linearSysD_timer.stop();
     ctime_welllsD += linearSysD_timer.lastElapsed();
     /*

@@ -183,6 +183,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     ctime_mswdatatrans += dataTrans_timer.lastElapsed();
     */
     Dune::Timer applyMethod_timer;
+    std::cout << N << std::endl;
 
     // actually apply MultisegmentWells
     // std::cout << "number of segments: " << size(multisegments) << std::endl;
