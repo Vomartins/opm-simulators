@@ -47,7 +47,6 @@
 
 #include <iostream>
 #include <vector>
-
 #include <fstream>
 
 extern double ctime_mswapply;
@@ -61,6 +60,23 @@ extern double ctime_mswdatatrans;
             OPM_THROW(std::logic_error, "HIP error"); \
         }                                             \
     }
+
+void saveVectorToFile(const std::vector<double>& vec, const std::string& filename) {
+    std::ofstream outFile(filename, std::ios::out | std::ios::binary);  // Open file in binary mode
+    if (!outFile) {
+        std::cerr << "Error opening file for writing." << std::endl;
+        return;
+    }
+
+    // Save vector size first to know how many elements to read back later
+    size_t size = vec.size();
+    outFile.write(reinterpret_cast<const char*>(&size), sizeof(size));
+
+    // Write the contents of the vector
+    outFile.write(reinterpret_cast<const char*>(vec.data()), size * sizeof(int));
+
+    outFile.close();
+}
 
 namespace Opm
 {
@@ -173,7 +189,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         h_x.resize(N);
         h_y.resize(N);
     }
-    /*
+/*
     Dune::Timer dataTrans_timer;
     dataTrans_timer.start();
     //HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
@@ -181,7 +197,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     HIP_CHECK(hipStreamSynchronize(stream));
     dataTrans_timer.stop();
     ctime_mswdatatrans += dataTrans_timer.lastElapsed();
-    */
+*/
     Dune::Timer applyMethod_timer;
 
     // actually apply MultisegmentWells
@@ -192,14 +208,14 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
     }
-    /*
+/*
     dataTrans_timer.start();
     // copy vector y from CPU to GPU
     HIP_CHECK(hipMemcpyAsync(d_y, h_y.data(), sizeof(double) * N, hipMemcpyHostToDevice, stream));
     HIP_CHECK(hipStreamSynchronize(stream));
     dataTrans_timer.stop();
     ctime_mswdatatrans += dataTrans_timer.lastElapsed();
-    */
+*/
 }
 
 void WellContributionsRocsparse::apply(double *d_x, double *d_y){
