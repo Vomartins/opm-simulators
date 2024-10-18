@@ -116,6 +116,7 @@ private:
     void solve_system(WellContributions &wellContribs, BdaResult &res);
 
 public:
+
     /// Construct a openclSolver
     /// \param[in] linear_solver_verbosity    verbosity of openclSolver
     /// \param[in] maxit                      maximum number of iterations for openclSolver

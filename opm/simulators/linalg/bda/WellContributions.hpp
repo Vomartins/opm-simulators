@@ -76,8 +76,6 @@ protected:
 
     std::vector<std::unique_ptr<MultisegmentWellContribution>> multisegments;
 
-    int matrixDtransfer = 0.0;
-
 public:
     unsigned int getNumWells(){
         return num_std_wells + num_ms_wells;

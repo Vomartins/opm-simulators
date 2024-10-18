@@ -90,11 +90,10 @@ private:
     unsigned int *d_Brows_hip;
     void *d_buffer;
     rocblas_handle handle;
-    rocsolver_rfinfo ilu_info;
     rocblas_operation operation = rocblas_operation_none;
     double *z_hip;
     double *rhs_hip;
-    int matrixDtransfer;
+    //int matrixDtransfer;
 
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well
@@ -127,7 +126,7 @@ public:
                                  unsigned int Mb,
                                  std::vector<double> &Bvalues, std::vector<unsigned int> &BcolIndices, std::vector<unsigned int> &BrowPointers,
                                  unsigned int DnumBlocks, double *Dvalues, UMFPackIndex *DcolPointers,
-                                 UMFPackIndex *DrowIndices, std::vector<double> &Cvalues, int matrixDtrans);
+                                 UMFPackIndex *DrowIndices, std::vector<double> &Cvalues);
 
     /// Destroy a MultisegmentWellContribution, and free memory
     ~MultisegmentWellContribution();
@@ -148,9 +147,9 @@ public:
 
     void blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
 
-    void blocksrmvCtz(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
+    //void blocksrmvCtz(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
 
-    void blocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN);
+    void blocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nb, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN);
 };
 
 } //namespace Opm
