@@ -152,12 +152,12 @@ void csrPatternToCsc(int *CSRColIndices, int *CSRRowPointers, int *CSCRowIndices
     }
 }
 
-double* squareCSCtoMatrix(std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
+double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
 {
     int lda = size(Dcols)-1;
     int nnzs = size(Dvals);
 
-    double* Dmatrix = (double*)malloc(sizeof(double)*lda*lda);
+    //double* Dmatrix = (double*)malloc(sizeof(double)*lda*lda);
 
     std::vector<int> Cols(nnzs);
 

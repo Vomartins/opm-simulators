@@ -83,6 +83,7 @@ private:
     rocblas_int *info;
     rocblas_int *ipiv;
     int ipivDim;
+    double *Dmatrix;
     double *d_Dmatrix_hip;
     double *d_Cvals_hip;
     double *d_Bvals_hip;
@@ -93,6 +94,7 @@ private:
     rocblas_operation operation = rocblas_operation_none;
     double *z_hip;
     double *rhs_hip;
+    std::vector<double> rhs;
     //int matrixDtransfer;
 
     /// Translate the columnIndex if needed
