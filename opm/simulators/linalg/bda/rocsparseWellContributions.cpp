@@ -185,37 +185,15 @@ void WellContributionsRocsparse::apply_stdwells([[maybe_unused]] double *d_x,
 }
 
 void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
-    if (h_x.empty()) {
-        h_x.resize(N);
-        h_y.resize(N);
-    }
-/*
-    Dune::Timer dataTrans_timer;
-    dataTrans_timer.start();
-    //HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
-    HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
-    HIP_CHECK(hipStreamSynchronize(stream));
-    dataTrans_timer.stop();
-    ctime_mswdatatrans += dataTrans_timer.lastElapsed();
-*/
     Dune::Timer applyMethod_timer;
-
     // actually apply MultisegmentWells
-    // std::cout << "number of segments: " << size(multisegments) << std::endl;
     for (auto& well : multisegments) {
         applyMethod_timer.start();
         well->apply(d_x, d_y/*, h_x.data(), h_y.data()*/);
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
     }
-/*
-    dataTrans_timer.start();
-    // copy vector y from CPU to GPU
-    HIP_CHECK(hipMemcpyAsync(d_y, h_y.data(), sizeof(double) * N, hipMemcpyHostToDevice, stream));
-    HIP_CHECK(hipStreamSynchronize(stream));
-    dataTrans_timer.stop();
-    ctime_mswdatatrans += dataTrans_timer.lastElapsed();
-*/
+
 }
 
 void WellContributionsRocsparse::apply(double *d_x, double *d_y){

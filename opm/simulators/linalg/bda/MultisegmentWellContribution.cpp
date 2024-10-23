@@ -31,6 +31,10 @@
 #include <fstream>
 #include <algorithm>
 
+extern double ctime_alloc;
+extern double ctime_mswdatatransd;
+extern double ctime_welllsD;
+
 #define HIP_CALL(call)                                     \
   do {                                                     \
     hipError_t err = call;                                 \
@@ -55,7 +59,7 @@ template<class Scalar>
 __global__ void blocksrmvBx_k(const Scalar *vals,
                                    const unsigned int *cols,
                                    const unsigned int *rows,
-                                   const unsigned int Nb,
+                                   const unsigned int Nbr,
                                    const Scalar *x,
                                    const Scalar *rhs,
                                    Scalar *out,
@@ -86,7 +90,7 @@ __global__ void blocksrmvBx_k(const Scalar *vals,
     // num_blocks_per_warp: 3 (CUDA) vs  7 (ROCM)
     unsigned int offsetTarget = warpsize == 64 ? 48 : 32;
 
-    while(target_block_row < Nb){
+    while(target_block_row < Nbr){
         unsigned int first_block = rows[target_block_row];
         unsigned int last_block = rows[target_block_row+1];
         unsigned int block = first_block + lane / (bsM*bsN);
@@ -119,7 +123,7 @@ __global__ void blocksrmvBx_k(const Scalar *vals,
         target_block_row += num_warps_in_grid;
     }
 }
-
+/*
 template<class Scalar>
 __global__ void blocksrmvC_z_k(const Scalar *vals,
                                  const unsigned int *cols,
@@ -153,20 +157,20 @@ __global__ void blocksrmvC_z_k(const Scalar *vals,
         unsigned int first_block = rows[target_block_row];
         unsigned int last_block = rows[target_block_row + 1];
         unsigned int block = first_block + lane / (bsM * bsN);
-        Scalar local_out = 0.0;
+        //Scalar local_out = 0.0;
 
         // Compute Cz
-        if (lane < num_active_threads) {
+        //if (lane < num_active_threads) {
             for (; block < last_block; block += num_blocks_per_warp) {
                 Scalar z_elem = z[target_block_row*bsN + r];  // Access z using the column of the current block
                 Scalar A_elem = vals[block * bsM * bsN + c + r*bsM]; // Access corresponding element of C
-                local_out += A_elem * z_elem; // Accumulate
+                //local_out += A_elem * z_elem; // Accumulate
                 unsigned int row = cols[block] * bsM + c;
                 y[row] -= A_elem * z_elem;
             }
-        }
+        //}
 
-/*
+
         // Store the result in shared memory
         tmp[lane] = local_out;
 
@@ -194,9 +198,47 @@ __global__ void blocksrmvC_z_k(const Scalar *vals,
             //printf("block %u, col %u, row %i, target_block_row: %i\n", block ,cols[block], row, target_block_row);
             y[row] -= tmp[0];  // Update y: y = y - Cz
         }
-*/
+
         target_block_row += (warpsize / blockDim.x);
 
+    }
+}
+*/
+
+template<class Scalar>
+__global__ void serial_blocksrmvC_z_k(const Scalar *vals,
+                                 const unsigned int *cols,
+                                 const unsigned int *rows,
+                                 const Scalar *z,
+                                 Scalar *y,
+                                 const int block_dimM,
+                                 const int block_dimN)
+{
+    const int bsM = block_dimM;
+    const int bsN = block_dimN;
+    const unsigned int col = blockDim.x * blockIdx.x + threadIdx.x;
+
+    const unsigned int blockCol = col / blockDim.x;
+    const unsigned int first_block = rows[blockCol];
+    const unsigned int last_block = rows[blockCol+1];
+
+    double local_sum;
+
+    for (unsigned int block = first_block; block < last_block; block++){
+        for (int c = 0; c < bsM; c++){
+            local_sum = 0.0;
+            for (int r = 0; r < bsN; r++){
+                unsigned int Cidx = block * bsM * bsN + c + r * bsM;
+                double Cvals = vals[Cidx];
+                unsigned int zidx = blockCol * bsN + r;
+                double z_elem = z[zidx];
+                local_sum += Cvals*z_elem;
+                //printf("Cvals: %.12f(%u), z_elem: %.12f(%u), local_sum: %.12f\n", Cvals, Cidx, z_elem, zidx, local_sum);
+            }
+            unsigned int yidx = cols[block] * bsM + c;
+            y[yidx] -= local_sum;
+            //printf("y_elem: %.12f(%u)\n", y[yidx], yidx);
+        }
     }
 }
 
@@ -237,6 +279,19 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
     Dmatrix = (double*)malloc(sizeof(double)*lda*lda);
 
+    ROCSOLVER_CALL(rocblas_create_handle(&handle));
+
+    allocInit();
+
+    allocCall();
+
+    // Dune::Timer dataTrans_timer;
+    // dataTrans_timer.start();
+    // matricesToDevice();
+    // //std::cout << "Transfer ok!" << std::endl;
+    // dataTrans_timer.stop();
+    // ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+
     //umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
     //umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
 }
@@ -247,6 +302,10 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     //umfpack_di_free_numeric(&UMFPACK_Numeric);
 
     free(Dmatrix);
+
+    ROCSOLVER_CALL(rocblas_destroy_handle(handle));
+
+    freeInit();
 
     // HIP_CALL(hipDeviceSynchronize());
     // printf("Freeing memory at pointer %p\n", ipiv);
@@ -279,112 +338,109 @@ void checkHIPAlloc(void* ptr) {
     }
 }
 
-void MultisegmentWellContribution::hipAlloc()
+void MultisegmentWellContribution::allocInit()
+{
+
+    HIP_CALL(hipMalloc(&d_Dmatrix, sizeof(double)*rocM*rocN));
+    checkHIPAlloc(d_Dmatrix);
+    HIP_CALL(hipMalloc(&d_Cvals, sizeof(double)*size(Cvals)));
+    checkHIPAlloc(d_Cvals);
+    HIP_CALL(hipMalloc(&d_Bvals, sizeof(double)*size(Bvals)));
+    checkHIPAlloc(d_Bvals);
+    HIP_CALL(hipMalloc(&d_Bcols, sizeof(unsigned int)*size(Bcols)));
+    checkHIPAlloc(d_Bcols);
+    HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows)));
+    checkHIPAlloc(d_Brows);
+    HIP_CALL(hipMalloc(&d_rhs, sizeof(double)*ldb*Nrhs));
+    checkHIPAlloc(d_rhs); // might be removed, is not necessary
+}
+
+void MultisegmentWellContribution::allocCall()
 {
     HIP_CALL(hipMalloc(&ipiv, sizeof(rocblas_int)*ipivDim));
     checkHIPAlloc(ipiv);
-    //std::cout << rocM << " " << rocN << std::endl;
-    HIP_CALL(hipMalloc(&d_Dmatrix_hip, sizeof(double)*rocM*rocN));
-    checkHIPAlloc(d_Dmatrix_hip);
     HIP_CALL(hipMalloc(&info, sizeof(rocblas_int)));
     checkHIPAlloc(info);
-    HIP_CALL(hipMalloc(&z_hip, sizeof(double)*ldb*Nrhs));
-    checkHIPAlloc(z_hip);
-    HIP_CALL(hipMalloc(&rhs_hip, sizeof(double)*ldb*Nrhs));
-    checkHIPAlloc(rhs_hip);
-    HIP_CALL(hipMalloc(&d_Cvals_hip, sizeof(double)*size(Cvals)));
-    checkHIPAlloc(d_Cvals_hip);
-    HIP_CALL(hipMalloc(&d_Bvals_hip, sizeof(double)*size(Bvals)));
-    checkHIPAlloc(d_Bvals_hip);
-    HIP_CALL(hipMalloc(&d_Bcols_hip, sizeof(unsigned int)*size(Bcols)));
-    checkHIPAlloc(d_Bcols_hip);
-    HIP_CALL(hipMalloc(&d_Brows_hip, sizeof(unsigned int)*size(Brows)));
-    checkHIPAlloc(d_Brows_hip);
+    HIP_CALL(hipMalloc(&d_z, sizeof(double)*ldb*Nrhs));
+    checkHIPAlloc(d_z);
 }
+
 
 void MultisegmentWellContribution::matricesToDevice()
 {
     Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
     //std::cout << "  CSC to matrix ok!" << std::endl;
     //std::cout << rocM << " " << rocN << std::endl;
-    HIP_CALL(hipMemcpy(d_Dmatrix_hip, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     //std::cout << "  Dmatrix transfer ok!" << std::endl;
-    HIP_CALL(hipMemcpy(d_Cvals_hip, Cvals.data(), size(Cvals)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Cvals, Cvals.data(), size(Cvals)*sizeof(double), hipMemcpyHostToDevice));
     //std::cout << "  Cvals transfer ok!" << std::endl;
-    HIP_CALL(hipMemcpy(d_Bvals_hip, Bvals.data(), size(Bvals)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bvals, Bvals.data(), size(Bvals)*sizeof(double), hipMemcpyHostToDevice));
     //std::cout << "  Bvals transfer ok!" << std::endl;
-    HIP_CALL(hipMemcpy(d_Bcols_hip, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bcols, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
     //std::cout << "  Bcols transfer ok!" << std::endl;
-    HIP_CALL(hipMemcpy(d_Brows_hip, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
     //std::cout << "  Brows transfer ok!" << std::endl;
-    HIP_CALL(hipMemcpy(rhs_hip, rhs.data(), ldb*Nrhs*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_rhs, rhs.data(), ldb*Nrhs*sizeof(double), hipMemcpyHostToDevice));
     //std::cout << "  Rhs transfer ok!" << std::endl;
 }
 
-void MultisegmentWellContribution::freeRocSOLVER()
+void MultisegmentWellContribution::freeInit()
 {
     HIP_CALL(hipDeviceSynchronize());
     //std::cout << "  Hip sync ok!" << std::endl;
+    HIP_CALL(hipFree(d_Dmatrix));
+    //std::cout << "  Dmatrix ok!" << std::endl;
+    HIP_CALL(hipFree(d_Cvals));
+    //std::cout << "  Cvals ok!" << std::endl;
+    HIP_CALL(hipFree(d_Bvals));
+    //std::cout << "  Bvals ok!" << std::endl;
+    HIP_CALL(hipFree(d_Bcols));
+    //std::cout << "  Bcols ok!" << std::endl;
+    HIP_CALL(hipFree(d_Brows));
+    //std::cout << "  Brows ok!" << std::endl;
+    HIP_CALL(hipFree(d_rhs));
+    //std::cout << "  rhs ok!" << std::endl;
+
+}
+
+void MultisegmentWellContribution::freeCall()
+{
     HIP_CALL(hipFree(ipiv));
     //std::cout << "  ipiv ok!" << std::endl;
-    HIP_CALL(hipFree(d_Dmatrix_hip));
-    //std::cout << "  Dmatrix ok!" << std::endl;
-    HIP_CALL(hipFree(z_hip));
-    //std::cout << "  z_hip ok!" << std::endl;
-    HIP_CALL(hipFree(d_Cvals_hip));
-    //std::cout << "  Cvals ok!" << std::endl;
-    HIP_CALL(hipFree(d_Bvals_hip));
-    //std::cout << "  Bvals ok!" << std::endl;
-    HIP_CALL(hipFree(d_Bcols_hip));
-    //std::cout << "  Bcols ok!" << std::endl;
-    HIP_CALL(hipFree(d_Brows_hip));
-    //std::cout << "  Brows ok!" << std::endl;
-    HIP_CALL(hipFree(rhs_hip));
-    //std::cout << "  rhs ok!" << std::endl;
     HIP_CALL(hipFree(info));
     //std::cout << "  info ok!" << std::endl;
-    ROCSOLVER_CALL(rocblas_destroy_handle(handle));
-    //std::cout << "  handle ok!" << std::endl;
+    HIP_CALL(hipFree(d_z));
+    //std::cout << "  z_hip ok!" << std::endl;
 }
+
 
 void MultisegmentWellContribution::solveSystem()
 {
-    ROCSOLVER_CALL(rocblas_create_handle(&handle));
+    //ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
-    ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix_hip, lda, ipiv, info));
+    ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix, lda, ipiv, info));
 
-    ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix_hip, lda, ipiv, z_hip, ldb));
+    ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
+
+    HIP_CALL(hipDeviceSynchronize());
 }
 
-void MultisegmentWellContribution::blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* Rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign)
+void MultisegmentWellContribution::blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* Rhs, double* out, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN, const double op_sign)
 {
   unsigned int blockDim = 32;
-  unsigned int number_wg = std::ceil(Nb/blockDim);
+  unsigned int number_wg = std::ceil(Nbr/blockDim);
   unsigned int num_work_groups = number_wg == 0 ? 1 : number_wg;
   unsigned int gridDim = num_work_groups*blockDim;
   unsigned int shared_mem_size = blockDim*sizeof(double)* block_dimM * block_dimN;
 
-  blocksrmvBx_k<<<dim3(gridDim), dim3(blockDim), shared_mem_size>>>(vals, cols, rows, Nb, x, Rhs, out, block_dimM, block_dimN, op_sign);
+  blocksrmvBx_k<<<dim3(gridDim), dim3(blockDim), shared_mem_size>>>(vals, cols, rows, Nbr, x, Rhs, out, block_dimM, block_dimN, op_sign);
 
   HIP_CALL(hipGetLastError()); // Check for errors
   HIP_CALL(hipDeviceSynchronize()); // Synchronize to ensure completion
 }
+
 /*
-void MultisegmentWellContribution::blocksrmvCtz(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign)
-{
-  unsigned int blockDim = 32;
-  unsigned int number_wg = std::ceil(Nb/blockDim);
-  unsigned int num_work_groups = number_wg == 0 ? 1 : number_wg;
-  unsigned int gridDim = num_work_groups*blockDim;
-  unsigned int shared_mem_size = blockDim*sizeof(double)* block_dimM * block_dimN;
-
-  blocksrmvCtz_k<<<dim3(gridDim), dim3(blockDim), shared_mem_size>>>(vals, cols, rows, Nb, x, rhs, out, block_dimM, block_dimN, op_sign);
-
-  HIP_CALL(hipGetLastError()); // Check for errors
-  HIP_CALL(hipDeviceSynchronize()); // Synchronize to ensure completion
-}
-*/
-
 void MultisegmentWellContribution::blocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nb, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN)
 {
     unsigned int blockDim = 32; // Set the block size
@@ -399,100 +455,54 @@ void MultisegmentWellContribution::blocksrmvC_z(double* vals, unsigned int* cols
     HIP_CALL(hipGetLastError()); // Check for errors
     HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
 }
+*/
+
+void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nbr, int block_dimM, int block_dimN)
+{
+    unsigned int Nthreads = 1;
+    unsigned int Nblocks = Nbr;
+
+    dim3 block(Nthreads, 1, 1);
+    dim3 grid(Nblocks, 1, 1);
+
+    serial_blocksrmvC_z_k<<<grid, block>>>(vals, cols, rows, z, y, block_dimM, block_dimN);
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
+}
 
 // Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
 // h_x and h_y reside on host
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y/*, double *h_x, double *h_y*/)
 {
-    //std::cout << "Apply method" << std::endl;
+    // Dune::Timer alloc_timer;
+    // alloc_timer.start();
+    // allocCall();
+    // //std::cout << "Alloc ok!" << std::endl;
+    // alloc_timer.stop();
+    // ctime_alloc += alloc_timer.lastElapsed();
 
-
-
-    hipAlloc();
-    //std::cout << "Alloc ok!" << std::endl;
-
-
-
+    Dune::Timer dataTrans_timer;
+    dataTrans_timer.start();
     matricesToDevice();
     //std::cout << "Transfer ok!" << std::endl;
+    dataTrans_timer.stop();
+    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+
 
     OPM_TIMEBLOCK(apply);
-    // reset z1 and z2
-    /*
-    std::fill(z1.begin(), z1.end(), 0.0);
-    std::fill(z2.begin(), z2.end(), 0.0);
 
-    // z1 = B * x
-    for (unsigned int row = 0; row < Mb; ++row) {
-        // for every block in the row
-        for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
-            unsigned int colIdx = Bcols[blockID];
-            for (unsigned int j = 0; j < dim_wells; ++j) {
-                double temp = 0.0;
-                for (unsigned int k = 0; k < dim; ++k) {
-                    temp += Bvals[blockID * dim * dim_wells + j * dim + k] * h_x[colIdx * dim + k];
-                }
-                z1[row * dim_wells + j] += temp;
-            }
-        }
-    }
-    */
-
-    //Dune::Timer dataTransWell_timer;
-    /*
-    dataTransWell_timer.start();
-    HIP_CALL(hipMemcpy(z_hip, z1.data(), ldb*Nrhs*sizeof(double), hipMemcpyHostToDevice));
-    dataTransWell_timer.stop();
-    ctime_rocsoldatatrans += dataTransWell_timer.lastElapsed();
-    */
-
-    blocksrmvBx(d_Bvals_hip, d_Bcols_hip, d_Brows_hip, d_x, rhs_hip, z_hip, size(Brows)-1, dim_wells, dim, +1.0);
-    //std::cout << "Fist operation ok!" << std::endl;
+    Dune::Timer contribsCalc_timer;
+    contribsCalc_timer.start();
+    blocksrmvBx(d_Bvals, d_Bcols, d_Brows, d_x, d_rhs, d_z, size(Brows) - 1, dim_wells, dim, +1.0);
     solveSystem();
-    //std::cout << "Linear system solved!" << std::endl;
-    blocksrmvC_z(d_Cvals_hip, d_Bcols_hip, d_Brows_hip, z_hip, d_y, size(Bcols), size(Brows) - 1, dim, dim_wells);
-    //std::cout << "Second operation ok!" << std::endl;
-    //std::cout << std::endl;
-    //HIP_CALL(hipDeviceSynchronize());
+    serialBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    contribsCalc_timer.stop();
+    ctime_welllsD += contribsCalc_timer.lastElapsed();
 
-/*
-    dataTransWell_timer.start();
-    HIP_CALL(hipMemcpy(z2.data(), z_hip, rocM*sizeof(double),hipMemcpyDeviceToHost));
-    dataTransWell_timer.stop();
-    ctime_rocsoldatatrans += dataTransWell_timer.lastElapsed();
-*/
-    //std::cout << "Free method" << std::endl;
-    freeRocSOLVER();
-    //std::cout << "Free ok!" << std::endl;
+    // freeCall();
 
-    // z2 = D^-1 * (B * x)
-    // umfpack
-    /*
-    umfpack_di_solve(UMFPACK_A, Dcols.data(), Drows.data(), Dvals.data(), z2.data(), z1.data(), UMFPACK_Numeric, nullptr, nullptr);
-    std::cout << "[ ";
-    for (const auto& val : z2) std::cout << val << " ";
-    std::cout << "]";
-    std::cout << std::endl;
-    std::cout << std::endl;
-    */
-/*
-    // y -= (C^T * z2)
-    // y -= (C^T * (D^-1 * (B * x)))
-    for (unsigned int row = 0; row < Mb; ++row) {
-        // for every block in the row
-        for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
-            unsigned int colIdx = Bcols[blockID];
-            for (unsigned int j = 0; j < dim; ++j) {
-                double temp = 0.0;
-                for (unsigned int k = 0; k < dim_wells; ++k) {
-                    temp += Cvals[blockID * dim * dim_wells + j + k * dim] * z2[row * dim_wells + k];
-                }
-                h_y[colIdx * dim + j] -= temp;
-            }
-        }
-    }
-*/
 }
 
 #if HAVE_CUDA

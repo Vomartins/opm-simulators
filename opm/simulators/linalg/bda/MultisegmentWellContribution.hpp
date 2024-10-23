@@ -84,16 +84,16 @@ private:
     rocblas_int *ipiv;
     int ipivDim;
     double *Dmatrix;
-    double *d_Dmatrix_hip;
-    double *d_Cvals_hip;
-    double *d_Bvals_hip;
-    unsigned int *d_Bcols_hip;
-    unsigned int *d_Brows_hip;
+    double *d_Dmatrix;
+    double *d_Cvals;
+    double *d_Bvals;
+    unsigned int *d_Bcols;
+    unsigned int *d_Brows;
     void *d_buffer;
     rocblas_handle handle;
     rocblas_operation operation = rocblas_operation_none;
-    double *z_hip;
-    double *rhs_hip;
+    double *d_z;
+    double *d_rhs;
     std::vector<double> rhs;
     //int matrixDtransfer;
 
@@ -139,19 +139,25 @@ public:
     /// \param[inout] h_y       vector y, must be on CPU
     void apply(double *d_x, double *d_y/*, double *h_x, double *h_y*/);
 
-    void hipAlloc();
+    void allocInit();
+
+    void allocCall();
 
     void matricesToDevice();
 
-    void freeRocSOLVER();
+    void freeInit();
+
+    void freeCall();
 
     void solveSystem();
 
-    void blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
+    void blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
 
     //void blocksrmvCtz(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
 
     void blocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nb, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN);
+
+    void serialBlocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nbr,int block_dimM, int block_dimN);
 };
 
 } //namespace Opm
