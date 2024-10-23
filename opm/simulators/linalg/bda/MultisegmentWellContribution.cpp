@@ -307,6 +307,8 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
 
     freeInit();
 
+    freeCall();
+
     // HIP_CALL(hipDeviceSynchronize());
     // printf("Freeing memory at pointer %p\n", ipiv);
     // HIP_CALL(hipFree(ipiv));
