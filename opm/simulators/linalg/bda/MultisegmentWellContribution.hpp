@@ -94,7 +94,6 @@ private:
     rocblas_operation operation = rocblas_operation_none;
     double *d_z;
     double *d_rhs;
-    std::vector<double> rhs;
     //int matrixDtransfer;
 
     /// Translate the columnIndex if needed
@@ -151,7 +150,7 @@ public:
 
     void solveSystem();
 
-    void blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
+    void blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* out, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
 
     //void blocksrmvCtz(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* rhs, double* out, unsigned int Nb, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
 

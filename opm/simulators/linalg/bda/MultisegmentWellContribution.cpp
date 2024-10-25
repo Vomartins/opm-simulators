@@ -61,7 +61,6 @@ __global__ void blocksrmvBx_k(const Scalar *vals,
                                    const unsigned int *rows,
                                    const unsigned int Nbr,
                                    const Scalar *x,
-                                   const Scalar *rhs,
                                    Scalar *out,
                                    const unsigned int block_dimM,
                                    const unsigned int block_dimN,
@@ -118,7 +117,7 @@ __global__ void blocksrmvBx_k(const Scalar *vals,
 
         if(lane < bsM){
             unsigned int row = target_block_row*bsM + lane;
-            out[row] = rhs[row] + op_sign*tmp[lane];
+            out[row] = op_sign*tmp[lane];
         }
         target_block_row += num_warps_in_grid;
     }
@@ -218,7 +217,7 @@ __global__ void serial_blocksrmvC_z_k(const Scalar *vals,
     const int bsN = block_dimN;
     const unsigned int col = blockDim.x * blockIdx.x + threadIdx.x;
 
-    const unsigned int blockCol = col / blockDim.x;
+    const unsigned int blockCol = col;
     const unsigned int first_block = rows[blockCol];
     const unsigned int last_block = rows[blockCol+1];
 
@@ -271,8 +270,6 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     lda = rocM > rocN ? rocM : rocN;
     ldb = Mb*dim_wells;
     ipivDim = rocM > rocN ? rocN : rocM;
-
-    rhs.resize(ldb*Nrhs, 0.0);
 
     z1.resize(Mb * dim_wells);
     z2.resize(Mb * dim_wells);
@@ -353,8 +350,6 @@ void MultisegmentWellContribution::allocInit()
     checkHIPAlloc(d_Bcols);
     HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows)));
     checkHIPAlloc(d_Brows);
-    HIP_CALL(hipMalloc(&d_rhs, sizeof(double)*ldb*Nrhs));
-    checkHIPAlloc(d_rhs); // might be removed, is not necessary
 }
 
 void MultisegmentWellContribution::allocCall()
@@ -383,8 +378,6 @@ void MultisegmentWellContribution::matricesToDevice()
     //std::cout << "  Bcols transfer ok!" << std::endl;
     HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
     //std::cout << "  Brows transfer ok!" << std::endl;
-    HIP_CALL(hipMemcpy(d_rhs, rhs.data(), ldb*Nrhs*sizeof(double), hipMemcpyHostToDevice));
-    //std::cout << "  Rhs transfer ok!" << std::endl;
 }
 
 void MultisegmentWellContribution::freeInit()
@@ -401,8 +394,6 @@ void MultisegmentWellContribution::freeInit()
     //std::cout << "  Bcols ok!" << std::endl;
     HIP_CALL(hipFree(d_Brows));
     //std::cout << "  Brows ok!" << std::endl;
-    HIP_CALL(hipFree(d_rhs));
-    //std::cout << "  rhs ok!" << std::endl;
 
 }
 
@@ -428,7 +419,7 @@ void MultisegmentWellContribution::solveSystem()
     HIP_CALL(hipDeviceSynchronize());
 }
 
-void MultisegmentWellContribution::blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* Rhs, double* out, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN, const double op_sign)
+void MultisegmentWellContribution::blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* out, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN, const double op_sign)
 {
   unsigned int blockDim = 32;
   unsigned int number_wg = std::ceil(Nbr/blockDim);
@@ -436,7 +427,7 @@ void MultisegmentWellContribution::blocksrmvBx(double* vals, unsigned int* cols,
   unsigned int gridDim = num_work_groups*blockDim;
   unsigned int shared_mem_size = blockDim*sizeof(double)* block_dimM * block_dimN;
 
-  blocksrmvBx_k<<<dim3(gridDim), dim3(blockDim), shared_mem_size>>>(vals, cols, rows, Nbr, x, Rhs, out, block_dimM, block_dimN, op_sign);
+  blocksrmvBx_k<<<dim3(gridDim), dim3(blockDim), shared_mem_size>>>(vals, cols, rows, Nbr, x, out, block_dimM, block_dimN, op_sign);
 
   HIP_CALL(hipGetLastError()); // Check for errors
   HIP_CALL(hipDeviceSynchronize()); // Synchronize to ensure completion
@@ -461,8 +452,8 @@ void MultisegmentWellContribution::blocksrmvC_z(double* vals, unsigned int* cols
 
 void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nbr, int block_dimM, int block_dimN)
 {
-    unsigned int Nthreads = 1;
-    unsigned int Nblocks = Nbr;
+    unsigned int Nthreads = Nbr;
+    unsigned int Nblocks = 1;
 
     dim3 block(Nthreads, 1, 1);
     dim3 grid(Nblocks, 1, 1);
@@ -497,7 +488,7 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y/*, double *h_x
 
     Dune::Timer contribsCalc_timer;
     contribsCalc_timer.start();
-    blocksrmvBx(d_Bvals, d_Bcols, d_Brows, d_x, d_rhs, d_z, size(Brows) - 1, dim_wells, dim, +1.0);
+    blocksrmvBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim, +1.0);
     solveSystem();
     serialBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     contribsCalc_timer.stop();
