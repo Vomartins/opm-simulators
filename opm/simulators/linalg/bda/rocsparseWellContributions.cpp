@@ -189,7 +189,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     // actually apply MultisegmentWells
     for (auto& well : multisegments) {
         applyMethod_timer.start();
-        well->apply(d_x, d_y/*, h_x.data(), h_y.data()*/);
+        well->apply(d_x, d_y);
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
     }

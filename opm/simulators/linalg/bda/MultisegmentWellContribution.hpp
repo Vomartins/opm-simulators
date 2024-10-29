@@ -96,6 +96,8 @@ private:
     double *d_rhs;
     //int matrixDtransfer;
 
+    int dataTransfer;
+
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well
     unsigned int getColIdx(unsigned int idx);
@@ -132,11 +134,11 @@ public:
     /// Destroy a MultisegmentWellContribution, and free memory
     ~MultisegmentWellContribution();
 
-    /// Apply the MultisegmentWellContribution on CPU
+    /// Apply the MultisegmentWellContribution on GPU
     /// performs y -= (C^T * (D^-1 * (B*x))) for MultisegmentWell
-    /// \param[in] h_x          vector x, must be on CPU
-    /// \param[inout] h_y       vector y, must be on CPU
-    void apply(double *d_x, double *d_y/*, double *h_x, double *h_y*/);
+    /// \param[in] d_x          vector x, must be on GPU
+    /// \param[inout] d_y       vector y, must be on GPU
+    void apply(double *d_x, double *d_y);
 
     void allocInit();
 

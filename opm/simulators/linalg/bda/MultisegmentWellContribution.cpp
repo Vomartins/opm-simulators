@@ -309,6 +309,8 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     ldb = Mb*dim_wells;
     ipivDim = rocM > rocN ? rocN : rocM;
 
+    dataTransfer = 0;
+
     z1.resize(Mb * dim_wells);
     z2.resize(Mb * dim_wells);
 
@@ -317,8 +319,9 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
     allocInit();
-
     allocCall();
+
+    std::cout << "Memory allocated" << std::endl;
 
     // Dune::Timer dataTrans_timer;
     // dataTrans_timer.start();
@@ -341,8 +344,9 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     ROCSOLVER_CALL(rocblas_destroy_handle(handle));
 
     freeInit();
-
     freeCall();
+
+    std::cout << "Memory released" << std::endl;
 
     // HIP_CALL(hipDeviceSynchronize());
     // printf("Freeing memory at pointer %p\n", ipiv);
@@ -416,6 +420,7 @@ void MultisegmentWellContribution::matricesToDevice()
     //std::cout << "  Bcols transfer ok!" << std::endl;
     HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
     //std::cout << "  Brows transfer ok!" << std::endl;
+    std::cout << "Memory transfered" << std::endl;
 }
 
 void MultisegmentWellContribution::freeInit()
@@ -519,14 +524,19 @@ void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int
 // Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
 // h_x and h_y reside on host
 // y -= (C^T * (D^-1 * (B * x)))
-void MultisegmentWellContribution::apply(double *d_x, double *d_y/*, double *h_x, double *h_y*/)
+void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
-    Dune::Timer dataTrans_timer;
-    dataTrans_timer.start();
-    matricesToDevice();
-    //std::cout << "Transfer ok!" << std::endl;
-    dataTrans_timer.stop();
-    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    if (dataTransfer>=0){
+        Dune::Timer dataTrans_timer;
+        dataTrans_timer.start();
+        matricesToDevice();
+        //std::cout << "Transfer ok!" << std::endl;
+        dataTrans_timer.stop();
+        ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+
+        dataTransfer += 1;
+    }
+    std::cout << dataTransfer << std::endl;
 
     OPM_TIMEBLOCK(apply);
 

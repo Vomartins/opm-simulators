@@ -206,6 +206,7 @@ template<class Scalar, int numWellEq, int numEq>
 void MultisegmentWellEquations<Scalar,numWellEq,numEq>::
 extract(WellContributions& wellContribs) const
 {
+    std::cout << "Well matrices updated" << std::endl;
     unsigned int Mb = duneB_.N();       // number of blockrows in duneB_, duneC_ and duneD_
     unsigned int BnumBlocks = duneB_.nonzeroes();
     unsigned int DnumBlocks = duneD_.nonzeroes();
