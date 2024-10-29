@@ -156,7 +156,9 @@ public:
 
     void blocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nb, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN);
 
-    void serialBlocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nbr,int block_dimM, int block_dimN);
+    void serialBlocksrmvB_x(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* y, unsigned int Nbr, int block_dimM, int block_dimN);
+
+    void serialBlocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nbr, int block_dimM, int block_dimN);
 };
 
 } //namespace Opm

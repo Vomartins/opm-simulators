@@ -205,6 +205,44 @@ __global__ void blocksrmvC_z_k(const Scalar *vals,
 */
 
 template<class Scalar>
+__global__ void serial_blocksrmvB_x_k(const Scalar *vals,
+                                 const unsigned int *cols,
+                                 const unsigned int *rows,
+                                 const Scalar *x,
+                                 Scalar *y,
+                                 const int block_dimM,
+                                 const int block_dimN)
+{
+    const int bsM = block_dimM;
+    const int bsN = block_dimN;
+    const unsigned int row = blockDim.x * blockIdx.x + threadIdx.x;
+
+    const unsigned int blockRow = row;
+    const unsigned int first_block = rows[blockRow];
+    const unsigned int last_block = rows[blockRow+1];
+
+    double local_sum;
+
+    for (unsigned int block = first_block; block < last_block; block++){
+        for (int r = 0; r < bsM; r++){
+            local_sum = 0.0;
+            unsigned int yidx = blockRow * bsM + r;
+            for (int c = 0; c < bsN; c++){
+                unsigned int Bidx = block * bsM * bsN + r * bsN + c;
+                double Bvals = vals[Bidx];
+                unsigned int xidx = cols[block] * bsN + c;
+                double x_elem = x[xidx];
+                local_sum += Bvals*x_elem;
+                //y[yidx] += Bvals*x_elem;
+                //printf("Block: %u, Thread: %u, row: %u, Bvals: %.15f(%u), x_elem: %.15f(%u), local_mult: %.15f, local_sum: %.15f\n", blockIdx.x, threadIdx.x, yidx, Bvals, Bidx, x_elem, xidx, Bvals*x_elem , local_sum/*local_sum*/);
+            }
+            y[yidx] += local_sum;
+            //printf("y_elem: %.15f(%u)\n", y[yidx], yidx);
+        }
+    }
+}
+
+template<class Scalar>
 __global__ void serial_blocksrmvC_z_k(const Scalar *vals,
                                  const unsigned int *cols,
                                  const unsigned int *rows,
@@ -450,10 +488,24 @@ void MultisegmentWellContribution::blocksrmvC_z(double* vals, unsigned int* cols
 }
 */
 
+void MultisegmentWellContribution::serialBlocksrmvB_x(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* y,  unsigned int Nbr, int block_dimM, int block_dimN)
+{
+    int Nthreads = 1;
+    int Nblocks = Nbr;
+
+    dim3 block(Nthreads, 1, 1);
+    dim3 grid(Nblocks, 1, 1);
+
+    serial_blocksrmvB_x_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
+}
+
 void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nbr, int block_dimM, int block_dimN)
 {
-    unsigned int Nthreads = Nbr;
-    unsigned int Nblocks = 1;
+    int Nthreads = 1;
+    int Nblocks = Nbr;
 
     dim3 block(Nthreads, 1, 1);
     dim3 grid(Nblocks, 1, 1);
@@ -469,13 +521,6 @@ void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y/*, double *h_x, double *h_y*/)
 {
-    // Dune::Timer alloc_timer;
-    // alloc_timer.start();
-    // allocCall();
-    // //std::cout << "Alloc ok!" << std::endl;
-    // alloc_timer.stop();
-    // ctime_alloc += alloc_timer.lastElapsed();
-
     Dune::Timer dataTrans_timer;
     dataTrans_timer.start();
     matricesToDevice();
@@ -483,12 +528,14 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y/*, double *h_x
     dataTrans_timer.stop();
     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
-
     OPM_TIMEBLOCK(apply);
+
+    HIP_CALL(hipMemset(d_z, 0.0, ldb*Nrhs*sizeof(double)));
 
     Dune::Timer contribsCalc_timer;
     contribsCalc_timer.start();
-    blocksrmvBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim, +1.0);
+    //blocksrmvBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim, +1.0);
+    serialBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     solveSystem();
     serialBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     contribsCalc_timer.stop();
