@@ -321,14 +321,12 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     allocInit();
     allocCall();
 
-    std::cout << "Memory allocated" << std::endl;
-
-    // Dune::Timer dataTrans_timer;
-    // dataTrans_timer.start();
-    // matricesToDevice();
-    // //std::cout << "Transfer ok!" << std::endl;
-    // dataTrans_timer.stop();
-    // ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    Dune::Timer dataTrans_timer;
+    dataTrans_timer.start();
+    matricesToDevice();
+    //std::cout << "Transfer ok!" << std::endl;
+    dataTrans_timer.stop();
+    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
     //umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
     //umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
@@ -346,7 +344,6 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     freeInit();
     freeCall();
 
-    std::cout << "Memory released" << std::endl;
 
     // HIP_CALL(hipDeviceSynchronize());
     // printf("Freeing memory at pointer %p\n", ipiv);
@@ -381,7 +378,6 @@ void checkHIPAlloc(void* ptr) {
 
 void MultisegmentWellContribution::allocInit()
 {
-
     HIP_CALL(hipMalloc(&d_Dmatrix, sizeof(double)*rocM*rocN));
     checkHIPAlloc(d_Dmatrix);
     HIP_CALL(hipMalloc(&d_Cvals, sizeof(double)*size(Cvals)));
@@ -407,20 +403,12 @@ void MultisegmentWellContribution::allocCall()
 
 void MultisegmentWellContribution::matricesToDevice()
 {
-    Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    //std::cout << "  CSC to matrix ok!" << std::endl;
-    //std::cout << rocM << " " << rocN << std::endl;
-    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
-    //std::cout << "  Dmatrix transfer ok!" << std::endl;
+    // Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    // HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Cvals, Cvals.data(), size(Cvals)*sizeof(double), hipMemcpyHostToDevice));
-    //std::cout << "  Cvals transfer ok!" << std::endl;
     HIP_CALL(hipMemcpy(d_Bvals, Bvals.data(), size(Bvals)*sizeof(double), hipMemcpyHostToDevice));
-    //std::cout << "  Bvals transfer ok!" << std::endl;
     HIP_CALL(hipMemcpy(d_Bcols, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
-    //std::cout << "  Bcols transfer ok!" << std::endl;
     HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
-    //std::cout << "  Brows transfer ok!" << std::endl;
-    std::cout << "Memory transfered" << std::endl;
 }
 
 void MultisegmentWellContribution::freeInit()
@@ -526,17 +514,22 @@ void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
-    if (dataTransfer>=0){
-        Dune::Timer dataTrans_timer;
-        dataTrans_timer.start();
-        matricesToDevice();
-        //std::cout << "Transfer ok!" << std::endl;
-        dataTrans_timer.stop();
-        ctime_mswdatatransd += dataTrans_timer.lastElapsed();
-
-        dataTransfer += 1;
-    }
-    std::cout << dataTransfer << std::endl;
+    // if (dataTransfer==0){
+    //     Dune::Timer dataTrans_timer;
+    //     dataTrans_timer.start();
+    //     matricesToDevice();
+    //     //std::cout << "Transfer ok!" << std::endl;
+    //     dataTrans_timer.stop();
+    //     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    //
+    //     dataTransfer += 1;
+    // }
+    Dune::Timer dataTrans_timer;
+    dataTrans_timer.start();
+    Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    dataTrans_timer.stop();
+    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
     OPM_TIMEBLOCK(apply);
 
