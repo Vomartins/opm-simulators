@@ -51,7 +51,9 @@
 
 extern double ctime_mswapply;
 extern double mswapply_counter;
-extern double ctime_mswdatatrans;
+
+extern double matrix_save;
+extern double vector_save;
 
 #define HIP_CHECK(stat)                               \
     {                                                 \
@@ -192,6 +194,20 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         well->apply(d_x, d_y);
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
+
+        if (well->Mb == 27 && vector_save == 0.0){
+            if (h_x.empty()) {
+                h_x.resize(this->N);
+                h_y.resize(this->N);
+                HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * this->N, hipMemcpyDeviceToHost, stream));
+                HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * this->N, hipMemcpyDeviceToHost, stream));
+            }
+
+            saveVectorToFile(h_x, "vector-x"+std::to_string(well->Mb)+".bin");
+            saveVectorToFile(h_y, "vector-y"+std::to_string(well->Mb)+".bin");
+
+            vector_save = 1.0;
+        }
     }
 
 }

@@ -38,3 +38,7 @@ build/
 
 # Kdevelop files
 *.kdev4
+
+
+# Cache files
+.cache*

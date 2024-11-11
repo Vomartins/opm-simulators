@@ -42,54 +42,6 @@
 #include <cstddef>
 #include <stdexcept>
 
-#include <iostream>
-
-template <typename I>
-void saveSparseMatrixVectors(const std::vector<double>& vecVals, const std::vector<I>& vecCols, const std::vector<I>& vecRows, const std::string& filename) {
-    std::ofstream outFile(filename, std::ios::out | std::ios::binary);
-    if (!outFile) {
-        std::cerr << "Error opening file for writing." << std::endl;
-        return;
-    }
-
-    // Write first vector
-    size_t size1 = vecVals.size();
-    outFile.write(reinterpret_cast<const char*>(&size1), sizeof(size1));
-    outFile.write(reinterpret_cast<const char*>(vecVals.data()), size1 * sizeof(int));
-
-    // Write second vector
-    size_t size2 = vecCols.size();
-    outFile.write(reinterpret_cast<const char*>(&size2), sizeof(size2));
-    outFile.write(reinterpret_cast<const char*>(vecCols.data()), size2 * sizeof(int));
-
-    // Write third vector
-    size_t size3 = vecRows.size();
-    outFile.write(reinterpret_cast<const char*>(&size3), sizeof(size3));
-    outFile.write(reinterpret_cast<const char*>(vecRows.data()), size3 * sizeof(int));
-
-    outFile.close();
-}
-
-template void saveSparseMatrixVectors(const std::vector<double>&, const std::vector<int>&, const std::vector<int>&, const std::string&);
-template void saveSparseMatrixVectors(const std::vector<double>&, const std::vector<unsigned int>&, const std::vector<unsigned int>&, const std::string&);
-
-void saveVectorToFile(const std::vector<double>& vec, const std::string& filename) {
-    std::ofstream outFile(filename, std::ios::out | std::ios::binary);  // Open file in binary mode
-    if (!outFile) {
-        std::cerr << "Error opening file for writing." << std::endl;
-        return;
-    }
-
-    // Save vector size first to know how many elements to read back later
-    size_t size = vec.size();
-    outFile.write(reinterpret_cast<const char*>(&size), sizeof(size));
-
-    // Write the contents of the vector
-    outFile.write(reinterpret_cast<const char*>(vec.data()), size * sizeof(int));
-
-    outFile.close();
-}
-
 namespace Opm {
 
 template<class Scalar, int numWellEq, int numEq>
@@ -279,40 +231,40 @@ extract(WellContributions& wellContribs) const
     auto* Drows = umfpackMatrix.getInternalMatrix().getRowIndex();
 
     // duneB
-    std::vector<unsigned int> Bcols;
-    std::vector<unsigned int> Brows;
-    std::vector<double> Bvals;
-    Bcols.reserve(BnumBlocks);
-    Brows.reserve(Mb+1);
-    Bvals.reserve(BnumBlocks * numEq * numWellEq);
-    Brows.emplace_back(0);
-    unsigned int sumBlocks = 0;
-    for (auto rowB = duneB_.begin(); rowB != duneB_.end(); ++rowB) {
-        int sizeRow = 0;
-        for (auto colB = rowB->begin(), endB = rowB->end(); colB != endB; ++colB) {
-            Bcols.emplace_back(colB.index());
-            for (int i = 0; i < numWellEq; ++i) {
-                for (int j = 0; j < numEq; ++j) {
-                    Bvals.emplace_back((*colB)[i][j]);
+        std::vector<unsigned int> Bcols;
+        std::vector<unsigned int> Brows;
+        std::vector<double> Bvals;
+        Bcols.reserve(BnumBlocks);
+        Brows.reserve(Mb+1);
+        Bvals.reserve(BnumBlocks * numEq * numWellEq);
+        Brows.emplace_back(0);
+        unsigned int sumBlocks = 0;
+        for (auto rowB = duneB_.begin(); rowB != duneB_.end(); ++rowB) {
+            int sizeRow = 0;
+            for (auto colB = rowB->begin(), endB = rowB->end(); colB != endB; ++colB) {
+                Bcols.emplace_back(colB.index());
+                for (int i = 0; i < numWellEq; ++i) {
+                    for (int j = 0; j < numEq; ++j) {
+                        Bvals.emplace_back((*colB)[i][j]);
+                    }
                 }
+                sizeRow++;
             }
-            sizeRow++;
+            sumBlocks += sizeRow;
+            Brows.emplace_back(sumBlocks);
         }
-        sumBlocks += sizeRow;
-        Brows.emplace_back(sumBlocks);
-    }
 
-    wellContribs.addMultisegmentWellContribution(numEq,
-                                                 numWellEq,
-                                                 Mb,
-                                                 Bvals,
-                                                 Bcols,
-                                                 Brows,
-                                                 DnumBlocks,
-                                                 Dvals,
-                                                 Dcols,
-                                                 Drows,
-                                                 Cvals);
+        wellContribs.addMultisegmentWellContribution(numEq,
+                                                    numWellEq,
+                                                    Mb,
+                                                    Bvals,
+                                                    Bcols,
+                                                    Brows,
+                                                    DnumBlocks,
+                                                    Dvals,
+                                                    Dcols,
+                                                    Drows,
+                                                    Cvals);
 }
 #endif
 

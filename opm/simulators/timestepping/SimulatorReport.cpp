@@ -37,11 +37,9 @@ extern double ctime_msw;
 extern double ctime_mswperfrate;
 extern double ctime_mswapply;
 extern double mswapply_counter;
-extern double ctime_mswdatatrans;
 extern double ctime_mswdatatransd;
 extern double ctime_welllsD;
 extern double ctime_alloc;
-extern double ctime_rocsoldatatrans;
 
 namespace Opm
 {
@@ -101,8 +99,8 @@ namespace Opm
         }
         max_linear_iterations = std::max(max_linear_iterations, sr.total_linear_iterations);
 
-        // It makes no sense adding time points. Therefore, do not 
-        // overwrite the value of global_time which gets set in 
+        // It makes no sense adding time points. Therefore, do not
+        // overwrite the value of global_time which gets set in
         // NonlinearSolver.hpp by the line:
         //     report.global_time = timer.simulationTimeElapsed();
     }
@@ -208,11 +206,7 @@ namespace Opm
             os << std::endl;
             os << fmt::format("  Msw computePerfRate time:      {:7.5f} s", ctime_mswperfrate);
             os << std::endl;
-            os << fmt::format("  Msw data trans time (xr, z1):  {:7.5f} s", ctime_mswdatatrans);
-            os << std::endl;
             os << fmt::format("  Msw apply time:                {:7.5f} s", ctime_mswapply);
-            os << std::endl;
-            os << fmt::format("       Msw data trans time (z1, z2):      {:7.5f} s", ctime_rocsoldatatrans);
             os << std::endl;
             os << fmt::format("       Msw alloc time:                    {:7.5f} s", ctime_alloc);
             os << std::endl;

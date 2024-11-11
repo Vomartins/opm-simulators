@@ -28,11 +28,12 @@ double ctime_msw = 0.0;
 double ctime_mswperfrate = 0.0;
 double ctime_mswapply = 0.0;
 double mswapply_counter = 0.0;
-double ctime_mswdatatrans = 0.0;
-double ctime_rocsoldatatrans = 0.0;
 double ctime_mswdatatransd = 0.0;
 double ctime_welllsD = 0.0;
 double ctime_alloc = 0.0;
+
+double matrix_save = 0.0;
+double vector_save = 0.0;
 
 
 int main(int argc, char** argv)

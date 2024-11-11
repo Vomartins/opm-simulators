@@ -24,6 +24,8 @@
 #include <dune/istl/umfpack.hh>
 #endif // HAVE_UMFPACK
 
+#include <opm/common/ErrorMacros.hpp>
+
 #include <opm/simulators/linalg/bda/MultisegmentWellContribution.hpp>
 #include <opm/simulators/linalg/bda/Reorder.hpp>
 
@@ -34,6 +36,7 @@
 extern double ctime_alloc;
 extern double ctime_mswdatatransd;
 extern double ctime_welllsD;
+extern double matrix_save;
 
 #define HIP_CALL(call)                                     \
   do {                                                     \
@@ -54,6 +57,36 @@ extern double ctime_welllsD;
       exit(1);                                                                 \
     }                                                                          \
   } while (0)
+
+template <typename I>
+void saveSparseMatrixVectors(const std::vector<double>& vecVals, const std::vector<I>& vecCols, const std::vector<I>& vecRows, const std::string& filename) {
+    std::ofstream outFile(filename, std::ios::out | std::ios::binary);
+    if (!outFile) {
+        std::cerr << "Error opening file for writing." << std::endl;
+        return;
+    }
+
+    // Write first vector
+    size_t size1 = vecVals.size();
+    outFile.write(reinterpret_cast<const char*>(&size1), sizeof(size1));
+    outFile.write(reinterpret_cast<const char*>(vecVals.data()), size1 * sizeof(double));
+
+    // Write second vector
+    size_t size2 = vecCols.size();
+    outFile.write(reinterpret_cast<const char*>(&size2), sizeof(size2));
+    outFile.write(reinterpret_cast<const char*>(vecCols.data()), size2 * sizeof(I));
+
+    // Write third vector
+    size_t size3 = vecRows.size();
+    outFile.write(reinterpret_cast<const char*>(&size3), sizeof(size3));
+    outFile.write(reinterpret_cast<const char*>(vecRows.data()), size3 * sizeof(I));
+
+    outFile.close();
+}
+
+template void saveSparseMatrixVectors(const std::vector<double>&, const std::vector<int>&, const std::vector<int>&, const std::string&);
+template void saveSparseMatrixVectors(const std::vector<double>&, const std::vector<unsigned int>&, const std::vector<unsigned int>&, const std::string&);
+
 
 template<class Scalar>
 __global__ void blocksrmvBx_k(const Scalar *vals,
@@ -303,6 +336,16 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     Bcols = std::move(BcolIndices);
     Brows = std::move(BrowPointers);
 
+    //std::cout << Mb << std::endl;
+
+    if (Mb == 27 && matrix_save == 0.0){
+        saveSparseMatrixVectors(Dvals, Dcols, Drows, "matrix-D"+std::to_string(Mb)+".bin");
+        saveSparseMatrixVectors(Bvals, Bcols, Brows, "matrix-B"+std::to_string(Mb)+".bin");
+        saveSparseMatrixVectors(Cvals, Bcols, Brows, "matrix-C"+std::to_string(Mb)+".bin");
+
+        matrix_save = 1.0;
+    }
+
     rocM = size(Dcols)-1;
     rocN = rocM;
     lda = rocM > rocN ? rocM : rocN;
@@ -318,8 +361,12 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
+    Dune::Timer alloc_timer;
+    alloc_timer.start();
     allocInit();
     allocCall();
+    alloc_timer.stop();
+    ctime_alloc += alloc_timer.lastElapsed();
 
     Dune::Timer dataTrans_timer;
     dataTrans_timer.start();
@@ -556,4 +603,3 @@ void MultisegmentWellContribution::setCudaStream(cudaStream_t stream_)
 #endif
 
 } //namespace Opm
-

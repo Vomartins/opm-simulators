@@ -49,12 +49,14 @@ namespace Opm
 
 class MultisegmentWellContribution
 {
+public:
+    unsigned int Mb;
 
 private:
     unsigned int dim;                        // size of blockvectors in vectors x and y, equal to MultisegmentWell::numEq
     unsigned int dim_wells;                  // size of blocks in C, B and D, equal to MultisegmentWell::numWellEq
     unsigned int M;                          // number of rows, M == dim_wells*Mb
-    unsigned int Mb;                         // number of blockrows in C, D and B
+    //unsigned int Mb;                         // number of blockrows in C, D and B
 
 #if HAVE_CUDA
     cudaStream_t stream; // not actually used yet, will be when MultisegmentWellContribution are applied on GPU
