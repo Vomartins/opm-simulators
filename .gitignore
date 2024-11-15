@@ -41,4 +41,4 @@ build/
 
 
 # Cache files
-.cache*
+.cache/*
