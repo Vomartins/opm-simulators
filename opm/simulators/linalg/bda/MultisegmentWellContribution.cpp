@@ -562,16 +562,15 @@ void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
-    // if (dataTransfer==0){
-    //     Dune::Timer dataTrans_timer;
-    //     dataTrans_timer.start();
-    //     matricesToDevice();
-    //     //std::cout << "Transfer ok!" << std::endl;
-    //     dataTrans_timer.stop();
-    //     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
-    //
-    //     dataTransfer += 1;
-    // }
+    //if (dataTransfer==0){
+        Dune::Timer dataTrans_timer;
+        dataTrans_timer.start();
+        matricesToDevice();
+        //std::cout << "Transfer ok!" << std::endl;
+         dataTrans_timer.stop();
+         ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+         //dataTransfer += 1;
+         //}
 //Uncoment the last block to have RocSPARSE convergence
     //Dune::Timer dataTrans_timer;
     //dataTrans_timer.start();
