@@ -451,8 +451,8 @@ void MultisegmentWellContribution::allocCall()
 void MultisegmentWellContribution::matricesToDevice()
 {
 //Comment the next two lines to have RocSPARSE convergence
-    //Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Cvals, Cvals.data(), size(Cvals)*sizeof(double), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Bvals, Bvals.data(), size(Bvals)*sizeof(double), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Bcols, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
@@ -563,22 +563,22 @@ void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
     // if (dataTransfer==0){
-    //     Dune::Timer dataTrans_timer;
-    //     dataTrans_timer.start();
-    //     matricesToDevice();
+    //    Dune::Timer dataTrans_timer;
+    //    dataTrans_timer.start();
+    //    matricesToDevice();
     //     //std::cout << "Transfer ok!" << std::endl;
-    //     dataTrans_timer.stop();
-    //     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    //    dataTrans_timer.stop();
+    //    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
     //
     //     dataTransfer += 1;
     // }
-//Uncoment the last block to have RocSPARSE convergence
-    Dune::Timer dataTrans_timer;
-    dataTrans_timer.start();
-    Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
-    dataTrans_timer.stop();
-    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+//Uncoment the next block (L576-L581) to have RocSPARSE convergence
+    //Dune::Timer dataTrans_timer;
+    //dataTrans_timer.start();
+    //Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    //dataTrans_timer.stop();
+    //ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
     OPM_TIMEBLOCK(apply);
 
