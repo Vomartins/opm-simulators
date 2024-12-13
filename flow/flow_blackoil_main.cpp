@@ -32,8 +32,8 @@ double ctime_mswdatatransd = 0.0;
 double ctime_welllsD = 0.0;
 double ctime_alloc = 0.0;
 
-double matrix_save = 0.0;
-double vector_save = 0.0;
+double matrix_save = 1.0;
+double vector_save = 1.0;
 
 
 int main(int argc, char** argv)
