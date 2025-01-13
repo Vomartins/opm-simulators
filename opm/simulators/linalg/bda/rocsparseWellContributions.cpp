@@ -194,7 +194,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         well->apply(d_x, d_y);
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
-
+        /*
         if (well->Mb == 27 && vector_save == 0.0){
             if (h_x.empty()) {
                 h_x.resize(this->N);
@@ -208,6 +208,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
 
             vector_save = 1.0;
         }
+        */
     }
 
 }

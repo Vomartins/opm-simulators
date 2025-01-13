@@ -33,10 +33,14 @@
 #include <fstream>
 #include <algorithm>
 
+#include <chrono>
+#include <iomanip>
+
 extern double ctime_alloc;
 extern double ctime_mswdatatransd;
 extern double ctime_welllsD;
 extern double matrix_save;
+extern double dmatrix_apply_count;
 
 #define HIP_CALL(call)                                     \
   do {                                                     \
@@ -86,6 +90,36 @@ void saveSparseMatrixVectors(const std::vector<double>& vecVals, const std::vect
 
 template void saveSparseMatrixVectors(const std::vector<double>&, const std::vector<int>&, const std::vector<int>&, const std::string&);
 template void saveSparseMatrixVectors(const std::vector<double>&, const std::vector<unsigned int>&, const std::vector<unsigned int>&, const std::string&);
+
+void printMatrix(double* matrix, unsigned int rows, unsigned int cols, unsigned int lda) {
+    std::cout << "Matrix (" << rows << " x " << cols << "):" << std::endl;
+    for (unsigned int i = 0; i < rows; ++i) {
+        for (unsigned int j = 0; j < cols; ++j) {
+            // Map 2D indices (i, j) to 1D index in the flat array
+            std::cout << matrix[i * lda + j] << " ";
+        }
+        std::cout << std::endl; // New line at the end of each row
+    }
+    std::cout << std::endl;
+}
+
+void saveMatrix(double* matrix, size_t rows, size_t cols, const std::string& filename) {
+    std::ofstream outFile(filename, std::ios::binary);
+    if (!outFile) {
+        std::cerr << "Error: Unable to open file for writing: " << filename << std::endl;
+        return;
+    }
+
+    // Write matrix dimensions to the file
+    outFile.write(reinterpret_cast<const char*>(&rows), sizeof(size_t));
+    outFile.write(reinterpret_cast<const char*>(&cols), sizeof(size_t));
+
+    // Write matrix data to the file
+    outFile.write(reinterpret_cast<const char*>(matrix), rows * cols * sizeof(double));
+
+    outFile.close();
+    std::cout << "Matrix saved to " << filename << " successfully." << std::endl;
+}
 
 
 template<class Scalar>
@@ -167,9 +201,8 @@ __global__ void serial_blocksrmvB_x_k(const Scalar *vals,
 {
     const int bsM = block_dimM;
     const int bsN = block_dimN;
-    const unsigned int row = blockDim.x * blockIdx.x + threadIdx.x;
 
-    const unsigned int blockRow = row;
+    const unsigned int blockRow = blockDim.x * blockIdx.x + threadIdx.x;;
     const unsigned int first_block = rows[blockRow];
     const unsigned int last_block = rows[blockRow+1];
 
@@ -193,6 +226,86 @@ __global__ void serial_blocksrmvB_x_k(const Scalar *vals,
         }
     }
 }
+
+template<class Scalar>
+__global__ void serial_blocksrmvB_x_v1_k(const Scalar *vals,
+                                 const unsigned int *cols,
+                                 const unsigned int *rows,
+                                 const Scalar *x,
+                                 Scalar *y,
+                                 const int block_dimM,
+                                 const int block_dimN)
+{
+    const int bsM = block_dimM;
+    const int bsN = block_dimN;
+
+    const unsigned int blockRow = threadIdx.x;
+    //const unsigned int row = blockRow*bsM;
+    const unsigned int first_block = rows[blockRow];
+    const unsigned int last_block = rows[blockRow+1];
+
+    double local_sum;
+
+    for (unsigned int block = first_block; block < last_block; block++){
+        for (int r = 0; r < bsM; r++){
+            local_sum = 0.0;
+            unsigned int yidx = blockRow*bsM + r;
+            for (int c = 0; c < bsN; c++){
+                unsigned int Bidx = block * bsM * bsN + r * bsN + c;
+                double Bvals = vals[Bidx];
+                unsigned int xidx = cols[block] * bsN + c;
+                double x_elem = x[xidx];
+                local_sum += Bvals*x_elem;
+                //y[yidx] += Bvals*x_elem;
+                //printf("Block: %u, Thread: %u, row: %u, Bvals: %.15f(%u), x_elem: %.15f(%u), local_mult: %.15f, local_sum: %.15f\n", blockIdx.x, threadIdx.x, yidx, Bvals, Bidx, x_elem, xidx, Bvals*x_elem , local_sum/*local_sum*/);
+            }
+            y[yidx] += local_sum;
+            //printf("y_elem: %.15f(%u)\n", y[yidx], yidx);
+        }
+    }
+}
+
+template <class Scalar>
+__global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
+                                        const unsigned int *cols,
+                                        const unsigned int *rows,
+                                        const Scalar *x,
+                                        Scalar *y,
+                                        const int block_dimM,
+                                        const int block_dimN)
+{
+    const unsigned int bsM = block_dimM;
+    const unsigned int bsN = block_dimN;
+
+    const unsigned int blockRow = blockIdx.x;  // Each block handles one block row
+    const unsigned int threadRow = threadIdx.x;  // Each thread handles one row of the block
+    const unsigned int first_block = rows[blockRow];
+    const unsigned int last_block = rows[blockRow + 1];
+
+
+    // Q: When threadRow is >= bsM?
+    if (threadRow < bsM) {
+        unsigned int yidx = blockRow * bsM + threadRow;
+        Scalar local_sum = 0.0;
+
+        for (unsigned int block = first_block; block < last_block; block++) {
+            for (int c = 0; c < bsN; c++) {
+                unsigned int Bidx = block * bsM * bsN + threadRow * bsN + c;
+                Scalar Bvals = vals[Bidx];
+                unsigned int xidx = cols[block] * bsN + c;
+
+                Scalar x_elem = x[xidx];
+
+                // Perform the multiplication
+                local_sum += Bvals * x_elem;
+            }
+        }
+
+        // Write the result back to global memory
+        y[yidx] += local_sum;
+    }
+}
+
 
 template<class Scalar>
 __global__ void serial_blocksrmvC_z_k(const Scalar *vals,
@@ -231,6 +344,45 @@ __global__ void serial_blocksrmvC_z_k(const Scalar *vals,
     }
 }
 
+template<class Scalar>
+__global__ void parallel_blocksrmvC_z_k(const Scalar *vals,
+                                        const unsigned int *cols,
+                                        const unsigned int *rows,
+                                        const Scalar *z,
+                                        Scalar *y,
+                                        const int block_dimM,
+                                        const int block_dimN)
+{
+    const int bsM = block_dimM;
+    const int bsN = block_dimN;
+
+    const unsigned int blockCol = blockIdx.x;
+    const unsigned int threadCol = threadIdx.x;
+    const unsigned int first_block = rows[blockCol];
+    const unsigned int last_block = rows[blockCol+1];
+
+    // Shared memory to cache x
+    //extern __shared__ Scalar shared_z[];
+    if (threadCol < bsM) {
+        for (unsigned int block = first_block; block < last_block; block++){
+            Scalar local_sum = 0.0;
+            for (int r = 0; r < bsN; r++){
+                unsigned int Cidx = block * bsM * bsN + threadCol + r * bsM;
+                Scalar Cvals = vals[Cidx];
+                unsigned int zidx = blockCol * bsN + r;
+
+                Scalar z_elem = z[zidx];
+
+                local_sum += Cvals*z_elem;
+            }
+
+            unsigned int yidx = cols[block] * bsM + threadCol;
+            y[yidx] -= local_sum;
+        }
+    }
+}
+
+
 namespace Opm
 {
 
@@ -248,15 +400,14 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     // copy data for matrix D into vectors to prevent it going out of scope
     Dvals(Dvalues, Dvalues + DnumBlocks * dim_wells * dim_wells),
     Dcols(DcolPointers, DcolPointers + M + 1),
-    Drows(DrowIndices, DrowIndices + DnumBlocks * dim_wells * dim_wells)
+    Drows(DrowIndices, DrowIndices + DnumBlocks * dim_wells * dim_wells),
+    Cvals(std::move(Cvalues)),
+    Bvals(std::move(Bvalues)),
+    Bcols(std::move(BcolIndices)),
+    Brows(std::move(BrowPointers))
 {
-    Cvals = std::move(Cvalues);
-    Bvals = std::move(Bvalues);
-    Bcols = std::move(BcolIndices);
-    Brows = std::move(BrowPointers);
-
     //std::cout << Mb << std::endl;
-
+    /*
     if (Mb == 27 && matrix_save == 0.0){
         saveSparseMatrixVectors(Dvals, Dcols, Drows, "matrix-D"+std::to_string(Mb)+".bin");
         saveSparseMatrixVectors(Bvals, Bcols, Brows, "matrix-B"+std::to_string(Mb)+".bin");
@@ -264,7 +415,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
         matrix_save = 1.0;
     }
-
+    */
     rocM = size(Dcols)-1;
     rocN = rocM;
     lda = rocM > rocN ? rocM : rocN;
@@ -276,7 +427,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     z1.resize(Mb * dim_wells);
     z2.resize(Mb * dim_wells);
 
-    Dmatrix = (double*)malloc(sizeof(double)*lda*lda);
+    Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
 
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
@@ -292,9 +443,19 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     matricesToDevice();
     //std::cout << "Transfer ok!" << std::endl;
     Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    //std::string filename = "constr-Dmatrix-"+std::to_string(static_cast<int>(Mb))+".bin";
+    //saveMatrix(Dmatrix, rocM, rocN, filename);
     //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     dataTrans_timer.stop();
     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+
+    //auto now = std::chrono::system_clock::now();
+    //std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+    //std::tm local_tm = *std::localtime(&now_time_t);
+    //std::cout << "Current time: "
+    //              << std::put_time(&local_tm, "%H:%M:%S") // Format: YYYY-MM-DD HH:MM:SS
+    //              << std::endl;
+    //std::cout << "--------------------- MultisegmentWell object contructed! ---------------------" << std::endl;
 
     //umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
     //umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
@@ -312,28 +473,7 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     freeInit();
     freeCall();
 
-
-    // HIP_CALL(hipDeviceSynchronize());
-    // printf("Freeing memory at pointer %p\n", ipiv);
-    // HIP_CALL(hipFree(ipiv));
-    // printf("Freeing memory at pointer %p\n", d_Dmatrix_hip);
-    // HIP_CALL(hipFree(d_Dmatrix_hip));
-    // printf("Freeing memory at pointer %p\n", z_hip);
-    // HIP_CALL(hipFree(z_hip));
-    // printf("Freeing memory at pointer %p\n", d_Cvals_hip);
-    // HIP_CALL(hipFree(d_Cvals_hip));
-    // printf("Freeing memory at pointer %p\n", d_Bvals_hip);
-    // HIP_CALL(hipFree(d_Bvals_hip));
-    // printf("Freeing memory at pointer %p\n", d_Bcols_hip);
-    // HIP_CALL(hipFree(d_Bcols_hip));
-    // printf("Freeing memory at pointer %p\n", d_Brows_hip);
-    // HIP_CALL(hipFree(d_Brows_hip));
-    // printf("Freeing memory at pointer %p\n", rhs_hip);
-    // HIP_CALL(hipFree(rhs_hip));
-    // printf("Freeing memory at pointer %p\n", info);
-    // HIP_CALL(hipFree(info));
-    // printf("Freeing memory at pointer %p\n", handle);
-    // ROCSOLVER_CALL(rocblas_destroy_handle(handle));
+   //std::cout << "--------------------- MultisegmentWell object destructed! ---------------------" << std::endl;
 
 }
 
@@ -400,7 +540,7 @@ void MultisegmentWellContribution::freeInit()
 void MultisegmentWellContribution::freeCall()
 {
     HIP_CALL(hipFree(ipiv));
-    //std::cout << "  ipiv ok!" << std::endl;
+    //std::cout << "  ipiv ok!" << std::endl;Scalar local_sum = 0.0;
     HIP_CALL(hipFree(info));
     //std::cout << "  info ok!" << std::endl;
     HIP_CALL(hipFree(d_z));
@@ -450,7 +590,14 @@ void MultisegmentWellContribution::blocksrmvC_z(double* vals, unsigned int* cols
 }
 */
 
-void MultisegmentWellContribution::serialBlocksrmvB_x(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* y,  unsigned int Nbr, int block_dimM, int block_dimN)
+void MultisegmentWellContribution::serialBlocksrmvB_x(double* vals,
+                                                      unsigned int* cols,
+                                                      unsigned int* rows,
+                                                      double* x,
+                                                      double* y,
+                                                      unsigned int Nbr,
+                                                      int block_dimM,
+                                                      int block_dimN)
 {
     int Nthreads = 1;
     int Nblocks = Nbr;
@@ -464,7 +611,49 @@ void MultisegmentWellContribution::serialBlocksrmvB_x(double* vals, unsigned int
     HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
 }
 
-void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nbr, int block_dimM, int block_dimN)
+void MultisegmentWellContribution::serialV1BlocksrmvB_x(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* y,  unsigned int Nbr, int block_dimM, int block_dimN)
+{
+    int Nthreads = Nbr;
+    int Nblocks = 1;
+
+    dim3 block(Nthreads, 1, 1);
+    dim3 grid(Nblocks, 1, 1);
+
+    serial_blocksrmvB_x_v1_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
+}
+
+void MultisegmentWellContribution::parallelBlocksrmvB_x(double* vals,
+                                                        unsigned int* cols,
+                                                        unsigned int* rows,
+                                                        double* x,
+                                                        double* y,
+                                                        unsigned int Nbr,
+                                                        int block_dimM,
+                                                        int block_dimN)
+{
+    int Nthreads = block_dimM;
+    int Nblocks = Nbr;
+
+    dim3 block(Nthreads, 1, 1);
+    dim3 grid(Nblocks, 1, 1);
+
+    parallel_blocksrmvB_x_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
+}
+
+void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals,
+                                                      unsigned int* cols,
+                                                      unsigned int* rows,
+                                                      double* z,
+                                                      double* y,
+                                                      unsigned int Nbr,
+                                                      int block_dimM,
+                                                      int block_dimN)
 {
     int Nthreads = 1;
     int Nblocks = Nbr;
@@ -478,11 +667,39 @@ void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals, unsigned int
     HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
 }
 
+void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
+                                                        unsigned int* cols,
+                                                        unsigned int* rows,
+                                                        double* z,
+                                                        double* y,
+                                                        unsigned int Nbr,
+                                                        int block_dimM,
+                                                        int block_dimN)
+{
+    int Nthreads = block_dimM; // Threads per block
+    dim3 block(Nthreads, 1 ,1);                      // One thread block per block column
+    dim3 grid(Nbr, 1, 1);                                     // One grid block per matrix block column
+
+    // Shared memory size to store z values
+    //size_t shared_mem_size = block_dimN * sizeof(double);
+
+    parallel_blocksrmvC_z_k<<<grid, block>>>(vals, cols, rows, z, y, block_dimM, block_dimN);
+
+    HIP_CALL(hipGetLastError());      // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+}
+
 // Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
 // h_x and h_y reside on host
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
+    //std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
+
+    dmatrix_apply_count += 1;
+    //std::string filename = "apply-Dmatrix-"+std::to_string(static_cast<int>(Mb))+"-"+std::to_string(static_cast<int>(dmatrix_apply_count))+".bin";
+    //saveMatrix(Dmatrix, rocM, rocN, filename);
+
     Dune::Timer dataTrans_timer;
     dataTrans_timer.start();
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
@@ -496,9 +713,12 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     Dune::Timer contribsCalc_timer;
     contribsCalc_timer.start();
     //blocksrmvBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim, +1.0);
-    serialBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //serialBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //serialV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     solveSystem();
-    serialBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    //serialBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
 

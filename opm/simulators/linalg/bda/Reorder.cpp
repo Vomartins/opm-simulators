@@ -157,8 +157,6 @@ double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vecto
     int lda = size(Dcols)-1;
     int nnzs = size(Dvals);
 
-    //double* Dmatrix = (double*)malloc(sizeof(double)*lda*lda);
-
     std::vector<int> Cols(nnzs);
 
     for(int i=0; i<lda; i++){

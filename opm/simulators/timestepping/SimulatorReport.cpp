@@ -214,8 +214,6 @@ namespace Opm
             os << std::endl;
             os << fmt::format("       Msw Dz=Bx, y = y-Cz:               {:7.5f} s", ctime_welllsD);
             os << std::endl;
-            os << fmt::format("       Msw apply counter:          {:7.0f}", mswapply_counter);
-            os << std::endl;
         }
 
         int n = total_linearizations + (failureReport ? failureReport->total_linearizations : 0);
