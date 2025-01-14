@@ -694,6 +694,7 @@ void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
+<<<<<<< HEAD
     //std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
 
     dmatrix_apply_count += 1;
@@ -705,6 +706,24 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     dataTrans_timer.stop();
     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+=======
+    //if (dataTransfer==0){
+        Dune::Timer dataTrans_timer;
+        dataTrans_timer.start();
+        matricesToDevice();
+        //std::cout << "Transfer ok!" << std::endl;
+         dataTrans_timer.stop();
+         ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+         //dataTransfer += 1;
+         //}
+//Uncoment the last block to have RocSPARSE convergence
+    //Dune::Timer dataTrans_timer;
+    //dataTrans_timer.start();
+    //Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    //dataTrans_timer.stop();
+    //ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+>>>>>>> 627d11df7e2360c2afa9ee4e96501d410a47b0fc
 
     OPM_TIMEBLOCK(apply);
 
