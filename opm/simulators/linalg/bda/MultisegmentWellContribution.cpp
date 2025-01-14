@@ -41,6 +41,7 @@ extern double ctime_mswdatatransd;
 extern double ctime_welllsD;
 extern double matrix_save;
 extern double dmatrix_apply_count;
+extern double time_step_counter;
 
 #define HIP_CALL(call)                                     \
   do {                                                     \
@@ -443,19 +444,20 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     matricesToDevice();
     //std::cout << "Transfer ok!" << std::endl;
     Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    //std::string filename = "constr-Dmatrix-"+std::to_string(static_cast<int>(Mb))+".bin";
-    //saveMatrix(Dmatrix, rocM, rocN, filename);
-    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    time_step_counter++;
+    std::string filename = "constr-Dmatrix-"+std::to_string(static_cast<int>(time_step_counter))+"-"+std::to_string(static_cast<int>(Mb))+".bin";
+    saveMatrix(Dmatrix, rocM, rocN, filename);
+    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     dataTrans_timer.stop();
     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
-    //auto now = std::chrono::system_clock::now();
-    //std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-    //std::tm local_tm = *std::localtime(&now_time_t);
-    //std::cout << "Current time: "
-    //              << std::put_time(&local_tm, "%H:%M:%S") // Format: YYYY-MM-DD HH:MM:SS
-    //              << std::endl;
-    //std::cout << "--------------------- MultisegmentWell object contructed! ---------------------" << std::endl;
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm local_tm = *std::localtime(&now_time_t);
+    std::cout << "Current time: "
+                  << std::put_time(&local_tm, "%H:%M:%S") // Format: YYYY-MM-DD HH:MM:SS
+                  << std::endl;
+    std::cout << "--------------------- MultisegmentWell object contructed! ---------------------" << std::endl;
 
     //umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
     //umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
@@ -473,7 +475,9 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     freeInit();
     freeCall();
 
-   //std::cout << "--------------------- MultisegmentWell object destructed! ---------------------" << std::endl;
+    dmatrix_apply_count = 0;
+
+   std::cout << "--------------------- MultisegmentWell object destructed! ---------------------" << std::endl;
 
 }
 
@@ -694,36 +698,17 @@ void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
-<<<<<<< HEAD
-    //std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
+    std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
 
     dmatrix_apply_count += 1;
-    //std::string filename = "apply-Dmatrix-"+std::to_string(static_cast<int>(Mb))+"-"+std::to_string(static_cast<int>(dmatrix_apply_count))+".bin";
-    //saveMatrix(Dmatrix, rocM, rocN, filename);
+    std::string filename = "apply-Dmatrix-"+std::to_string(static_cast<int>(time_step_counter))+"-"+std::to_string(static_cast<int>(Mb))+"-"+std::to_string(static_cast<int>(dmatrix_apply_count))+".bin";
+    saveMatrix(Dmatrix, rocM, rocN, filename);
 
     Dune::Timer dataTrans_timer;
     dataTrans_timer.start();
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     dataTrans_timer.stop();
     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
-=======
-    //if (dataTransfer==0){
-        Dune::Timer dataTrans_timer;
-        dataTrans_timer.start();
-        matricesToDevice();
-        //std::cout << "Transfer ok!" << std::endl;
-         dataTrans_timer.stop();
-         ctime_mswdatatransd += dataTrans_timer.lastElapsed();
-         //dataTransfer += 1;
-         //}
-//Uncoment the last block to have RocSPARSE convergence
-    //Dune::Timer dataTrans_timer;
-    //dataTrans_timer.start();
-    //Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
-    //dataTrans_timer.stop();
-    //ctime_mswdatatransd += dataTrans_timer.lastElapsed();
->>>>>>> 627d11df7e2360c2afa9ee4e96501d410a47b0fc
 
     OPM_TIMEBLOCK(apply);
 

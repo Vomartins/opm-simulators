@@ -36,6 +36,7 @@ double matrix_save = 1.0;
 double vector_save = 1.0;
 
 double dmatrix_apply_count = 0.0;
+double time_step_counter = 0.0;
 
 
 int main(int argc, char** argv)
