@@ -366,6 +366,7 @@ __global__ void parallel_blocksrmvC_z_k(const Scalar *vals,
     if (threadCol < bsM) {
         for (unsigned int block = first_block; block < last_block; block++){
             Scalar local_sum = 0.0;
+            unsigned int yidx = cols[block] * bsM + threadCol;
             for (int r = 0; r < bsN; r++){
                 unsigned int Cidx = block * bsM * bsN + threadCol + r * bsM;
                 Scalar Cvals = vals[Cidx];
@@ -375,8 +376,6 @@ __global__ void parallel_blocksrmvC_z_k(const Scalar *vals,
 
                 local_sum += Cvals*z_elem;
             }
-
-            unsigned int yidx = cols[block] * bsM + threadCol;
             y[yidx] -= local_sum;
         }
     }
@@ -389,7 +388,7 @@ namespace Opm
 MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
         unsigned int Mb_,
         std::vector<double> &Bvalues, std::vector<unsigned int> &BcolIndices, std::vector<unsigned int> &BrowPointers,
-        unsigned int DnumBlocks_, double *Dvalues, UMFPackIndex *DcolPointers, UMFPackIndex *DrowIndices,
+        unsigned int DnumBlocks_, double *Dsvalues, UMFPackIndex *DcolPointers, UMFPackIndex *DrowIndices,
         std::vector<double> &Cvalues)
     :
     dim(dim_),                // size of blockvectors in vectors x and y, equal to MultisegmentWell::numEq
