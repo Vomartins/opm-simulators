@@ -87,6 +87,7 @@ private:
     int ipivDim;
     double *Dmatrix;
     double *d_Dmatrix;
+    double *h_Dmatrix;
     double *d_Cvals;
     double *d_Bvals;
     unsigned int *d_Bcols;

@@ -722,7 +722,7 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
 
-    HIP_CALL(hipDeviceSynchronize());
+    HIP_CALL(hipMemcpy(d_Dmatrix, h_Dmatrix, rocM*rocN*sizeof(double), hipMemcpyDeviceToHost));
     // freeCall();
 
 }
