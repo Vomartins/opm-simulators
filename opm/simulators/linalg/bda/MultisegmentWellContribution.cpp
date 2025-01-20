@@ -456,6 +456,9 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     //              << std::endl;
     //std::cout << "--------------------- MultisegmentWell object contructed! ---------------------" << std::endl;
 
+    h_Dmatrix = new double[rocM*rocN];
+    std::copy(Dmatrix, Dmatrix+rocM*rocN, h_Dmatrix);
+
     //umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
     //umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
 }
