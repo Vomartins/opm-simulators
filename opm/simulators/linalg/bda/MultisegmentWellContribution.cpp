@@ -388,7 +388,7 @@ namespace Opm
 MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
         unsigned int Mb_,
         std::vector<double> &Bvalues, std::vector<unsigned int> &BcolIndices, std::vector<unsigned int> &BrowPointers,
-        unsigned int DnumBlocks_, double *Dsvalues, UMFPackIndex *DcolPointers, UMFPackIndex *DrowIndices,
+        unsigned int DnumBlocks_, double *Dvalues, UMFPackIndex *DcolPointers, UMFPackIndex *DrowIndices,
         std::vector<double> &Cvalues)
     :
     dim(dim_),                // size of blockvectors in vectors x and y, equal to MultisegmentWell::numEq
@@ -444,7 +444,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
     //std::string filename = "constr-Dmatrix-"+std::to_string(static_cast<int>(Mb))+".bin";
     //saveMatrix(Dmatrix, rocM, rocN, filename);
-    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     dataTrans_timer.stop();
     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
@@ -676,8 +676,9 @@ void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
                                                         int block_dimN)
 {
     int Nthreads = block_dimM; // Threads per block
+    int Nblocks = Nbr;
     dim3 block(Nthreads, 1 ,1);                      // One thread block per block column
-    dim3 grid(Nbr, 1, 1);                                     // One grid block per matrix block column
+    dim3 grid(Nblocks, 1, 1);                        // One grid block per matrix block column
 
     // Shared memory size to store z values
     //size_t shared_mem_size = block_dimN * sizeof(double);
@@ -695,15 +696,15 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
     //std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
 
-    dmatrix_apply_count += 1;
+    //dmatrix_apply_count += 1;
     //std::string filename = "apply-Dmatrix-"+std::to_string(static_cast<int>(Mb))+"-"+std::to_string(static_cast<int>(dmatrix_apply_count))+".bin";
     //saveMatrix(Dmatrix, rocM, rocN, filename);
 
-    Dune::Timer dataTrans_timer;
-    dataTrans_timer.start();
-    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
-    dataTrans_timer.stop();
-    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    //Dune::Timer dataTrans_timer;
+    //dataTrans_timer.start();
+    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    //dataTrans_timer.stop();
+    //ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
     OPM_TIMEBLOCK(apply);
 
@@ -721,6 +722,7 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
 
+    HIP_CALL(hipDeviceSynchronize());
     // freeCall();
 
 }
