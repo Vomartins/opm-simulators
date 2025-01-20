@@ -32,6 +32,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <filesystem>
 
 #include <chrono>
 #include <iomanip>
@@ -119,7 +120,7 @@ void saveMatrix(double* matrix, size_t rows, size_t cols, const std::string& fil
     outFile.write(reinterpret_cast<const char*>(matrix), rows * cols * sizeof(double));
 
     outFile.close();
-    std::cout << "Matrix saved to " << filename << " successfully." << std::endl;
+    //std::cout << "Matrix saved to " << filename << " successfully." << std::endl;
 }
 
 
@@ -444,9 +445,18 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     matricesToDevice();
     //std::cout << "Transfer ok!" << std::endl;
     Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    time_step_counter++;
-    std::string filename = "constr-Dmatrix-"+std::to_string(static_cast<int>(time_step_counter))+"-"+std::to_string(static_cast<int>(Mb))+".bin";
-    saveMatrix(Dmatrix, rocM, rocN, filename);
+
+    //time_index = time_step_counter;
+    //time_step_counter++;
+    //subdirectory = "DmatrixData/"+std::to_string(static_cast<int>(time_index))+"-"+std::to_string(static_cast<int>(Mb));
+
+    // Ensure the subdirectory exists before proceeding
+    //if (!std::filesystem::exists(subdirectory)) {
+    //    std::filesystem::create_directories(subdirectory);
+    //}
+
+    //std::string filename = subdirectory+"/constr"+".bin";
+    //saveMatrix(Dmatrix, rocM, rocN, filename);
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
     dataTrans_timer.stop();
     ctime_mswdatatransd += dataTrans_timer.lastElapsed();
@@ -454,10 +464,13 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     auto now = std::chrono::system_clock::now();
     std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
     std::tm local_tm = *std::localtime(&now_time_t);
-    std::cout << "Current time: "
-                  << std::put_time(&local_tm, "%H:%M:%S") // Format: YYYY-MM-DD HH:MM:SS
-                  << std::endl;
-    std::cout << "--------------------- MultisegmentWell object contructed! ---------------------" << std::endl;
+    //std::cout << "Current time: "
+                  //<< std::put_time(&local_tm, "%H:%M:%S") // Format: YYYY-MM-DD HH:MM:SS
+                  //<< std::endl;
+    //std::cout << "--------------------- MultisegmentWell object contructed! ---------------------" << std::endl;
+
+    h_Dmatrix = new double[rocM*rocN];
+    std::copy(Dmatrix, Dmatrix+rocM*rocN, h_Dmatrix);
 
     //umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
     //umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
@@ -477,7 +490,7 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
 
     dmatrix_apply_count = 0;
 
-   std::cout << "--------------------- MultisegmentWell object destructed! ---------------------" << std::endl;
+   //std::cout << "--------------------- MultisegmentWell object destructed! ---------------------" << std::endl;
 
 }
 
@@ -681,8 +694,10 @@ void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
                                                         int block_dimN)
 {
     int Nthreads = block_dimM; // Threads per block
+    int Nblocks = Nbr;
+
     dim3 block(Nthreads, 1 ,1);                      // One thread block per block column
-    dim3 grid(Nbr, 1, 1);                                     // One grid block per matrix block column
+    dim3 grid(Nblocks, 1, 1);                                     // One grid block per matrix block column
 
     // Shared memory size to store z values
     //size_t shared_mem_size = block_dimN * sizeof(double);
@@ -698,17 +713,16 @@ void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
 // y -= (C^T * (D^-1 * (B * x)))
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
-    std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
+    //std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
 
-    dmatrix_apply_count += 1;
-    std::string filename = "apply-Dmatrix-"+std::to_string(static_cast<int>(time_step_counter))+"-"+std::to_string(static_cast<int>(Mb))+"-"+std::to_string(static_cast<int>(dmatrix_apply_count))+".bin";
-    saveMatrix(Dmatrix, rocM, rocN, filename);
+    //apply_counter++;
+    //std::string filename = subdirectory+"/apply"+std::to_string(static_cast<int>(apply_counter))+".bin";
 
-    Dune::Timer dataTrans_timer;
-    dataTrans_timer.start();
-    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
-    dataTrans_timer.stop();
-    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    //Dune::Timer dataTrans_timer;
+    //dataTrans_timer.start();
+    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    //dataTrans_timer.stop();
+    //ctime_mswdatatransd += dataTrans_timer.lastElapsed();
 
     OPM_TIMEBLOCK(apply);
 
@@ -725,6 +739,9 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
+
+    HIP_CALL(hipMemcpy(d_Dmatrix, h_Dmatrix, rocM*rocN*sizeof(double), hipMemcpyDeviceToHost));
+    //saveMatrix(h_Dmatrix, rocM, rocN, filename);
 
     // freeCall();
 

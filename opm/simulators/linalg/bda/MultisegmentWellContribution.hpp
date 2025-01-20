@@ -86,6 +86,7 @@ private:
     rocblas_int *ipiv;
     int ipivDim;
     double *Dmatrix;
+    double *h_Dmatrix;
     double *d_Dmatrix;
     double *d_Cvals;
     double *d_Bvals;
@@ -99,6 +100,9 @@ private:
     //int matrixDtransfer;
 
     int dataTransfer;
+    std::string subdirectory;
+    int time_index;
+    int apply_counter = 0;
 
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well

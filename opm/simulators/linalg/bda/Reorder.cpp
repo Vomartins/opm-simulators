@@ -152,7 +152,7 @@ void csrPatternToCsc(int *CSRColIndices, int *CSRRowPointers, int *CSCRowIndices
     }
 }
 
-double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
+void squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
 {
     int lda = size(Dcols)-1;
     int nnzs = size(Dvals);
@@ -173,7 +173,6 @@ double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vecto
         Dmatrix[Drows[i]+Cols[i]*lda] = Dvals[i];
     }
 
-    return Dmatrix;
 }
 
 } // namespace Accelerator
