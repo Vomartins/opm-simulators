@@ -32,6 +32,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <cmath>
 
 #include <chrono>
 #include <iomanip>
@@ -227,44 +228,6 @@ __global__ void serial_blocksrmvB_x_k(const Scalar *vals,
     }
 }
 
-template<class Scalar>
-__global__ void serial_blocksrmvB_x_v1_k(const Scalar *vals,
-                                 const unsigned int *cols,
-                                 const unsigned int *rows,
-                                 const Scalar *x,
-                                 Scalar *y,
-                                 const int block_dimM,
-                                 const int block_dimN)
-{
-    const int bsM = block_dimM;
-    const int bsN = block_dimN;
-
-    const unsigned int blockRow = threadIdx.x;
-    //const unsigned int row = blockRow*bsM;
-    const unsigned int first_block = rows[blockRow];
-    const unsigned int last_block = rows[blockRow+1];
-
-    double local_sum;
-
-    for (unsigned int block = first_block; block < last_block; block++){
-        for (int r = 0; r < bsM; r++){
-            local_sum = 0.0;
-            unsigned int yidx = blockRow*bsM + r;
-            for (int c = 0; c < bsN; c++){
-                unsigned int Bidx = block * bsM * bsN + r * bsN + c;
-                double Bvals = vals[Bidx];
-                unsigned int xidx = cols[block] * bsN + c;
-                double x_elem = x[xidx];
-                local_sum += Bvals*x_elem;
-                //y[yidx] += Bvals*x_elem;
-                //printf("Block: %u, Thread: %u, row: %u, Bvals: %.15f(%u), x_elem: %.15f(%u), local_mult: %.15f, local_sum: %.15f\n", blockIdx.x, threadIdx.x, yidx, Bvals, Bidx, x_elem, xidx, Bvals*x_elem , local_sum/*local_sum*/);
-            }
-            y[yidx] += local_sum;
-            //printf("y_elem: %.15f(%u)\n", y[yidx], yidx);
-        }
-    }
-}
-
 template <class Scalar>
 __global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
                                         const unsigned int *cols,
@@ -306,6 +269,111 @@ __global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
     }
 }
 
+template <class Scalar>
+__global__ void parallel_V1blocksrmvB_x_k(const Scalar *vals,
+                                        const unsigned int *cols,
+                                        const unsigned int *rows,
+                                        const Scalar *x,
+                                        Scalar *y,
+                                        const int block_dimM,
+                                        const int block_dimN)
+{
+    const unsigned int bsM = block_dimM;
+    const unsigned int bsN = block_dimN;
+
+    const unsigned int blockRow = blockIdx.x;  // Each block handles one nonzero block. Block i = 0, ..., Nnnzb. Matriz nonzero block Index
+    const unsigned int threadRow = threadIdx.x % bsN;  // threadIdx.x -> k = 0,..., 11. Each thread does the multiplcation Biw(k)*xir
+    const unsigned int waveRow = floor(threadIdx.x/bsN);
+    const unsigned int first_block = rows[blockRow];
+    const unsigned int last_block = rows[blockRow + 1];
+
+    //printf("BlockIdx: %u -- ThreadIdx: %u -- WaveIdx: %u -- First nnz block: %u -- Last nnz block: %u \n", blockRow, threadRow, waveRow, first_block, last_block);
+    if ( last_block > first_block){
+        unsigned int yidx = blockRow*bsM + waveRow;
+        Scalar local_sum = 0.0;
+        for (unsigned int block = first_block; block < last_block; block++){
+            unsigned int Bidx = block*bsM*bsN + waveRow*bsN + threadRow;
+            Scalar B_elem = vals[Bidx];
+            unsigned int xidx = cols[block]*bsN + threadRow;
+            Scalar x_elem = x[xidx];
+            local_sum += B_elem*x_elem;
+            //printf("Block: %u -- BlockIdx: %u -- ThreadIdx: %u -- WaveIdx: %u -- First nnz block: %u -- Last nnz block: %u \n --- Bidx: %u -- B_elem: %.6f \n --- xidx: %u -- x_elem: %.6f \n --- yidx: %u -- local_sum: %.12f \n", block, blockRow, threadRow, waveRow, first_block, last_block, Bidx, B_elem, xidx, x_elem, yidx, local_sum);
+        }
+
+        // Wave reduction using __hip_shfl_down
+        for (int offset = bsN / 2; offset > 0; offset /= 2) {
+            local_sum += __shfl_down(local_sum, offset, bsN);
+        }
+
+        // Only the first thread in the wave writes to y
+        if (threadRow == 0) {
+            //atomicAdd(&y[yidx], local_sum); // Use atomicAdd for thread safety
+            y[yidx] += local_sum;
+        }
+
+        //y[yidx] += local_sum;
+        //printf("BlockIdx: %u -- WaveIdx: %u -- y_elem: %.12f \n", blockRow, waveRow, y[yidx]);
+    }
+}
+
+template <class Scalar>
+__global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
+                                          const unsigned int *cols,
+                                          const unsigned int *rows,
+                                          const Scalar *x,
+                                          Scalar *y,
+                                          const int block_dimM,
+                                          const int block_dimN) {
+    const unsigned int bsM = block_dimM; // Block row size
+    const unsigned int bsN = block_dimN; // Block column size
+    const unsigned int blockRow = blockIdx.x; // Block row index
+    const unsigned int threadRow = threadIdx.x % bsN; // Thread's column index within block
+    const unsigned int waveRow = threadIdx.x / bsN; // Wave row index
+    //printf("(bsM: %u, bsN: %u) blockRow: %u, waveRow: %u, threadRow: %u \n", bsM, bsN, blockRow, waveRow, threadRow);
+
+    // Shared memory to store intermediate values
+    extern __shared__ Scalar shared_data[]; // Size should be bsM * bsN
+    unsigned int shared_idx = waveRow * bsN + threadRow;
+
+    const unsigned int first_block = rows[blockRow];
+    const unsigned int last_block = rows[blockRow + 1];
+
+    if (last_block > first_block) {
+        unsigned int yidx = blockRow * bsM + waveRow; // Global memory index for y
+        Scalar local_sum = 0.0;
+
+        // Compute thread-level scalar multiplication
+        for (unsigned int block = first_block; block < last_block; block++) {
+            unsigned int Bidx = block * bsM * bsN + waveRow * bsN + threadRow;
+            Scalar B_elem = vals[Bidx];
+            unsigned int xidx = cols[block] * bsN + threadRow;
+            Scalar x_elem = x[xidx];
+            local_sum += B_elem * x_elem;
+            //printf("Block: %u -- BlockRow: %u -- ThreadIdx: %u -- WaveIdx: %u -- First nnz block: %u -- Last nnz block: %u \n --- Bidx: %u -- B_elem: %.6f \n --- xidx: %u -- x_elem: %.6f \n --- yidx: %u -- local_sum: %.12f \n", block, blockRow, threadRow, waveRow, first_block, last_block, Bidx, B_elem, xidx, x_elem, yidx, local_sum);
+        }
+
+        // Store the result in shared memory
+        shared_data[shared_idx] = local_sum;
+        __syncthreads();
+
+        // Perform reduction within shared memory
+        for (unsigned int offset = (bsN - 1); offset > 0; offset--) {
+            if (shared_idx + offset <= bsN*waveRow+bsN-1 ) {
+                shared_data[shared_idx] += shared_data[shared_idx + offset];
+                //printf("(bsM: %u, bsN: %u) blockRow: %u, waveRow: %u, threadRow: %u \n ---- SharedIdx: %u  -- offset: %u -- shared_Data: %.12f \n", bsM, bsN, blockRow, waveRow, threadRow, shared_idx, offset, shared_data[shared_idx]);
+            }
+            __syncthreads();
+        }
+
+
+
+        // Only the first thread in the wave writes the final result to global memory
+        if (threadRow == 0) {
+            y[yidx] = shared_data[shared_idx];
+            //printf("BlockRow: %u -- WaveIdx: %u -- y_elem: %.12f \n", blockRow, waveRow, y[yidx]);
+        }
+    }
+}
 
 template<class Scalar>
 __global__ void serial_blocksrmvC_z_k(const Scalar *vals,
@@ -575,23 +643,6 @@ void MultisegmentWellContribution::blocksrmvBx(double* vals, unsigned int* cols,
   HIP_CALL(hipDeviceSynchronize()); // Synchronize to ensure completion
 }
 
-/*
-void MultisegmentWellContribution::blocksrmvC_z(double* vals, unsigned int* cols, unsigned int* rows, double* z, double* y, unsigned int Nb, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN)
-{
-    unsigned int blockDim = 32; // Set the block size
-    // unsigned int number_wg = std::ceil(Nb/blockDim);
-    // unsigned int num_work_groups = number_wg == 0 ? 1 : number_wg;
-    // unsigned int gridDim = num_work_groups*blockDim;
-    unsigned int gridDim = (Nb + blockDim - 1) / blockDim;  // Calculate grid size
-    unsigned int shared_mem_size = blockDim * sizeof(double) * block_dimM * block_dimN;  // Allocate shared memory size
-
-    blocksrmvC_z_k<<<gridDim, blockDim, shared_mem_size>>>(vals, cols, rows, Nb, Nbr, z, y, block_dimM, block_dimN);
-
-    HIP_CALL(hipGetLastError()); // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
-}
-*/
-
 void MultisegmentWellContribution::serialBlocksrmvB_x(double* vals,
                                                       unsigned int* cols,
                                                       unsigned int* rows,
@@ -608,20 +659,6 @@ void MultisegmentWellContribution::serialBlocksrmvB_x(double* vals,
     dim3 grid(Nblocks, 1, 1);
 
     serial_blocksrmvB_x_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
-
-    HIP_CALL(hipGetLastError()); // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
-}
-
-void MultisegmentWellContribution::serialV1BlocksrmvB_x(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* y,  unsigned int Nbr, int block_dimM, int block_dimN)
-{
-    int Nthreads = Nbr;
-    int Nblocks = 1;
-
-    dim3 block(Nthreads, 1, 1);
-    dim3 grid(Nblocks, 1, 1);
-
-    serial_blocksrmvB_x_v1_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
 
     HIP_CALL(hipGetLastError()); // Check for errors
     HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
@@ -646,6 +683,53 @@ void MultisegmentWellContribution::parallelBlocksrmvB_x(double* vals,
 
     HIP_CALL(hipGetLastError()); // Check for errors
     HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
+}
+
+void MultisegmentWellContribution::parallelV1BlocksrmvB_x(double* vals,
+                                                        unsigned int* cols,
+                                                        unsigned int* rows,
+                                                        double* x,
+                                                        double* y,
+                                                        unsigned int Nbr,
+                                                        int block_dimM,
+                                                        int block_dimN,
+                                                        int Nnnzb)
+{
+    int Nthreads = block_dimM*block_dimN;
+    int Nblocks = Nbr;
+    //std::cout << "#  " << "Nseg: "<< Nbr << " -- " << "Nnnzb: " << Nblocks << std::endl;
+
+    dim3 block(Nthreads, 1, 1);
+    dim3 grid(Nblocks, 1, 1);
+
+    parallel_V1blocksrmvB_x_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
+
+    //std::cout << "##############################################################################################" << std::endl;
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Uncomment for synchronization if needed
+}
+
+void MultisegmentWellContribution::parallelV2BlocksrmvB_x(double* vals,
+                                                      unsigned int* cols,
+                                                      unsigned int* rows,
+                                                      double* x,
+                                                      double* y,
+                                                      unsigned int Nbr,
+                                                      int block_dimM,
+                                                      int block_dimN) {
+    int Nthreads = block_dimM * block_dimN; // Number of threads per block
+    int Nblocks = Nbr; // Number of blocks
+    size_t shared_memory_size = block_dimM * block_dimN * sizeof(double);
+
+    dim3 block(Nthreads, 1, 1);
+    dim3 grid(Nblocks, 1, 1);
+
+    parallel_V2blocksrmvB_x_k<<<grid, block, shared_memory_size>>>(
+        vals, cols, rows, x, y, block_dimM, block_dimN);
+
+    HIP_CALL(hipGetLastError());
+    HIP_CALL(hipDeviceSynchronize());
 }
 
 void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals,
@@ -699,15 +783,8 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
     //std::cout << "--------------------- Apply Method! ---------------------" << std::endl;
 
-    //dmatrix_apply_count += 1;
-    //std::string filename = "apply-Dmatrix-"+std::to_string(static_cast<int>(Mb))+"-"+std::to_string(static_cast<int>(dmatrix_apply_count))+".bin";
-    //saveMatrix(Dmatrix, rocM, rocN, filename);
-
-    //Dune::Timer dataTrans_timer;
-    //dataTrans_timer.start();
-    //HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
-    //dataTrans_timer.stop();
-    //ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    int sizeB = size(Brows);
+    //std::cout << "Number of block Rows: " << sizeB-1  << " -- " << "Number of nonzero blocks in Bw/Cw: "  << Brows[sizeB-1] << std::endl;
 
     OPM_TIMEBLOCK(apply);
 
@@ -719,12 +796,15 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     //serialBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     //serialV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //parallelV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim, Brows[sizeB-1]);
+    //parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     solveSystem();
     //serialBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
 
+    // Sporious HIP CALL
     HIP_CALL(hipMemcpy(d_Dmatrix, h_Dmatrix, rocM*rocN*sizeof(double), hipMemcpyDeviceToHost));
     // freeCall();
 
