@@ -327,8 +327,8 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
     const unsigned int bsM = block_dimM; // Block row size
     const unsigned int bsN = block_dimN; // Block column size
     const unsigned int blockRow = blockIdx.x; // Block row index
-    const unsigned int threadRow = threadIdx.x % bsN; // Thread's column index within block
-    const unsigned int waveRow = threadIdx.x / bsN; // Wave row index
+    const unsigned int threadRow = threadIdx.y; // Thread's column index within block
+    const unsigned int waveRow = threadIdx.x; // Wave row index
     //printf("(bsM: %u, bsN: %u) blockRow: %u, waveRow: %u, threadRow: %u \n", bsM, bsN, blockRow, waveRow, threadRow);
 
     // Shared memory to store intermediate values
@@ -357,15 +357,12 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
         __syncthreads();
 
         // Perform reduction within shared memory
-        for (unsigned int offset = (bsN - 1); offset > 0; offset--) {
-            if (shared_idx + offset <= bsN*waveRow+bsN-1 ) {
+        for (int offset = (bsN + 1) / 2; offset > 0; offset /= 2) {
+            if (threadRow < offset && threadRow + offset < bsN) {
                 shared_data[shared_idx] += shared_data[shared_idx + offset];
-                //printf("(bsM: %u, bsN: %u) blockRow: %u, waveRow: %u, threadRow: %u \n ---- SharedIdx: %u  -- offset: %u -- shared_Data: %.12f \n", bsM, bsN, blockRow, waveRow, threadRow, shared_idx, offset, shared_data[shared_idx]);
             }
             __syncthreads();
         }
-
-
 
         // Only the first thread in the wave writes the final result to global memory
         if (threadRow == 0) {
@@ -722,7 +719,7 @@ void MultisegmentWellContribution::parallelV2BlocksrmvB_x(double* vals,
     int Nblocks = Nbr; // Number of blocks
     size_t shared_memory_size = block_dimM * block_dimN * sizeof(double);
 
-    dim3 block(Nthreads, 1, 1);
+    dim3 block(block_dimM, block_dimN, 1);
     dim3 grid(Nblocks, 1, 1);
 
     parallel_V2blocksrmvB_x_k<<<grid, block, shared_memory_size>>>(
