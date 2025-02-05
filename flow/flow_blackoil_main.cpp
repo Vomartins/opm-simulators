@@ -27,9 +27,10 @@ double stdwapply_counter = 0.0;
 double ctime_msw = 0.0;
 double ctime_mswperfrate = 0.0;
 double ctime_mswapply = 0.0;
-double mswapply_counter = 0.0;
 double ctime_mswdatatransd = 0.0;
 double ctime_welllsD = 0.0;
+double ctime_wellBx = 0.0;
+double ctime_wellCz = 0.0;
 double ctime_alloc = 0.0;
 
 double matrix_save = 1.0;

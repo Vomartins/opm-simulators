@@ -28,18 +28,14 @@
 #include <ostream>
 #include <fmt/format.h>
 
-extern double ctime_stdw;
-extern double ctime_stdwperfrate;
-extern double ctime_stdwapply;
-extern double stdwapply_counter;
-
 extern double ctime_msw;
 extern double ctime_mswperfrate;
 extern double ctime_mswapply;
-extern double mswapply_counter;
 extern double ctime_mswdatatransd;
 extern double ctime_welllsD;
 extern double ctime_alloc;
+extern double ctime_wellBx;
+extern double ctime_wellCz;
 
 namespace Opm
 {
@@ -194,13 +190,6 @@ namespace Opm
                               output_write_time + (failureReport ? failureReport->output_write_time : 0.0));
             os << std::endl;
 
-            os << fmt::format("  Peaceman calc. time:           {:7.5f} s", ctime_stdw);
-            os << std::endl;
-            os << fmt::format("  Stdw computePerfRate time:     {:7.5f} s", ctime_stdwperfrate);
-            os << std::endl;
-            os << fmt::format("  Stdw apply time:               {:7.5f} s", ctime_stdwapply);
-            os << std::endl;
-            os << fmt::format("       Stdw apply counter:         {:7.0f}", stdwapply_counter);
             os << std::endl;
             os << fmt::format("  Msw rate calc. time:           {:7.5f} s", ctime_msw);
             os << std::endl;
@@ -212,7 +201,11 @@ namespace Opm
             os << std::endl;
             os << fmt::format("       Msw data transfer time (B, C, D):  {:7.5f} s", ctime_mswdatatransd);
             os << std::endl;
-            os << fmt::format("       Msw Dz=Bx, y = y-Cz:               {:7.5f} s", ctime_welllsD);
+            os << fmt::format("       Msw v=Bx:                          {:7.5f} s", ctime_wellBx);
+            os << std::endl;
+            os << fmt::format("       Msw Dz=v:                          {:7.5f} s", ctime_welllsD);
+            os << std::endl;
+            os << fmt::format("       Msw y = y-Cz:                      {:7.5f} s", ctime_wellCz);
             os << std::endl;
         }
 

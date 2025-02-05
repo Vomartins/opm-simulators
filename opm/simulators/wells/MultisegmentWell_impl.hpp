@@ -46,7 +46,6 @@
 extern double ctime_msw;
 extern double ctime_mswperfrate;
 extern double ctime_mswapply;
-extern double mswapply_counter;
 
 namespace Opm
 {
@@ -211,7 +210,7 @@ namespace Opm
                                                  this->param_.relaxed_tolerance_flow_well_,
                                                  this->param_.tolerance_pressure_ms_wells_,
                                                  this->param_.relaxed_tolerance_pressure_ms_well_,
-                                                 relax_tolerance, 
+                                                 relax_tolerance,
                                                  this->wellIsStopped());
 
     }
@@ -234,17 +233,15 @@ namespace Opm
             return;
         }
 
-        mswapply_counter++;
-
-        Dune::Timer applyMethod_timer;
-        applyMethod_timer.start();
+        //Dune::Timer applyMethod_timer;
+        //applyMethod_timer.start();
 
         // apply method for msw
 
         this->linSys_.apply(x, Ax);
 
-        applyMethod_timer.stop();
-        ctime_mswapply += applyMethod_timer.lastElapsed();
+        //applyMethod_timer.stop();
+        //ctime_mswapply += applyMethod_timer.lastElapsed();
     }
 
 
@@ -522,8 +519,8 @@ namespace Opm
                                   DeferredLogger& deferred_logger) const
     {
         // Create a copy of the well.
-        // TODO: check if we can avoid taking multiple copies. Call from updateWellPotentials 
-        // is allready a copy, but not from other calls. 
+        // TODO: check if we can avoid taking multiple copies. Call from updateWellPotentials
+        // is allready a copy, but not from other calls.
         MultisegmentWell<TypeTag> well_copy(*this);
         well_copy.debug_cost_counter_ = 0;
 
@@ -531,8 +528,8 @@ namespace Opm
         WellState well_state_copy = simulator.problem().wellModel().wellState();
         const auto& group_state = simulator.problem().wellModel().groupState();
         auto& ws = well_state_copy.well(this->index_of_well_);
-        
-        // get current controls        
+
+        // get current controls
         const auto& summary_state = simulator.vanguard().summaryState();
         auto inj_controls = well_copy.well_ecl_.isInjector()
             ? well_copy.well_ecl_.injectionControls(summary_state)
@@ -540,10 +537,10 @@ namespace Opm
         auto prod_controls = well_copy.well_ecl_.isProducer()
             ? well_copy.well_ecl_.productionControls(summary_state)
             : Well::ProductionControls(0);
-        
+
         // prepare/modify well state and control
         well_copy.prepareForPotentialCalculations(summary_state, well_state_copy, inj_controls, prod_controls);
-        
+
         well_copy.scaleSegmentPressuresWithBhp(well_state_copy);
 
         // initialize rates from previous potentials
@@ -1296,7 +1293,7 @@ namespace Opm
                 // the well index associated with the connection
                 const double trans_mult = simulator.problem().template wellTransMultiplier<double>(int_quantities, cell_idx);
                 const auto& wellstate_nupcol = simulator.problem().wellModel().nupcolWellState().well(this->index_of_well_);
-                const std::vector<Scalar> tw_perf = this->wellIndex(perf, int_quantities, trans_mult, wellstate_nupcol);  
+                const std::vector<Scalar> tw_perf = this->wellIndex(perf, int_quantities, trans_mult, wellstate_nupcol);
                 std::vector<double> ipr_a_perf(this->ipr_a_.size());
                 std::vector<double> ipr_b_perf(this->ipr_b_.size());
                 for (int comp_idx = 0; comp_idx < this->num_components_; ++comp_idx) {
@@ -1339,9 +1336,9 @@ namespace Opm
     updateIPRImplicit(const Simulator& simulator, WellState& well_state, DeferredLogger& deferred_logger)
     {
         // Compute IPR based on *converged* well-equation:
-        // For a component rate r the derivative dr/dbhp is obtained by 
+        // For a component rate r the derivative dr/dbhp is obtained by
         // dr/dbhp = - (partial r/partial x) * inv(partial Eq/partial x) * (partial Eq/partial bhp_target)
-        // where Eq(x)=0 is the well equation setup with bhp control and primary variables x 
+        // where Eq(x)=0 is the well equation setup with bhp control and primary variables x
 
         // We shouldn't have zero rates at this stage, but check
         bool zero_rates;
@@ -1355,7 +1352,7 @@ namespace Opm
             const auto msg = fmt::format("updateIPRImplicit: Well {} has zero rate, IPRs might be problematic", this->name());
             deferred_logger.debug(msg);
             /*
-            // could revert to standard approach here:    
+            // could revert to standard approach here:
             updateIPR(simulator, deferred_logger);
             for (int comp_idx = 0; comp_idx < this->num_components_; ++comp_idx){
                 const int idx = this->modelCompIdxToFlowCompIdx(comp_idx);
@@ -1369,7 +1366,7 @@ namespace Opm
 
         std::fill(ws.implicit_ipr_a.begin(), ws.implicit_ipr_a.end(), 0.);
         std::fill(ws.implicit_ipr_b.begin(), ws.implicit_ipr_b.end(), 0.);
-        //WellState well_state_copy = well_state;    
+        //WellState well_state_copy = well_state;
         auto inj_controls = Well::InjectionControls(0);
         auto prod_controls = Well::ProductionControls(0);
         prod_controls.addControl(Well::ProducerCMode::BHP);
@@ -1391,14 +1388,14 @@ namespace Opm
             const EvalWell comp_rate = this->primary_variables_.getQs(comp_idx);
             const int idx = this->modelCompIdxToFlowCompIdx(comp_idx);
             for (size_t pvIdx = 0; pvIdx < num_eq; ++pvIdx) {
-                // well primary variable derivatives in EvalWell start at position Indices::numEq 
+                // well primary variable derivatives in EvalWell start at position Indices::numEq
                 ws.implicit_ipr_b[idx] -= x_well[0][pvIdx]*comp_rate.derivative(pvIdx+Indices::numEq);
             }
             ws.implicit_ipr_a[idx] = ws.implicit_ipr_b[idx]*ws.bhp - comp_rate.value();
         }
         // reset cmode
         ws.production_cmode = cmode;
-    }    
+    }
 
     template<typename TypeTag>
     void
@@ -1614,8 +1611,8 @@ namespace Opm
                              const Well::ProductionControls& prod_controls,
                              WellState& well_state,
                              const GroupState& group_state,
-                             DeferredLogger& deferred_logger, 
-                             const bool fixed_control /*false*/, 
+                             DeferredLogger& deferred_logger,
+                             const bool fixed_control /*false*/,
                              const bool fixed_status /*false*/)
     {
         const int max_iter_number = this->param_.max_inner_iter_ms_wells_;
@@ -1640,8 +1637,8 @@ namespace Opm
         const auto& summary_state = simulator.vanguard().summaryState();
 
         // Always take a few (more than one) iterations after a switch before allowing a new switch
-        // The optimal number here is subject to further investigation, but it has been observerved 
-        // that unless this number is >1, we may get stuck in a cycle 
+        // The optimal number here is subject to further investigation, but it has been observerved
+        // that unless this number is >1, we may get stuck in a cycle
         const int min_its_after_switch = 3;
         int its_since_last_switch = min_its_after_switch;
         int switch_count= 0;
@@ -1785,7 +1782,7 @@ namespace Opm
             deferred_logger.debug(message);
         } else {
             this->wellStatus_ = well_status_orig;
-            this->operability_status_ = operability_orig;            
+            this->operability_status_ = operability_orig;
             const std::string message = fmt::format("   Well {} did not converge in {} inner iterations ("
                                                     "{} control/status switches).", this->name(), it, switch_count);
             deferred_logger.debug(message);

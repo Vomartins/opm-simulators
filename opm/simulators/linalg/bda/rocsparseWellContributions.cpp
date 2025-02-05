@@ -50,7 +50,6 @@
 #include <fstream>
 
 extern double ctime_mswapply;
-extern double mswapply_counter;
 
 extern double matrix_save;
 extern double vector_save;

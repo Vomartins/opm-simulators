@@ -212,6 +212,15 @@ public:
                               int block_dimM,
                               int block_dimN);
 
+    void parallelV2BlocksrmvC_z(double* vals,
+                                unsigned int* cols,
+                                unsigned int* rows,
+                                double* z,
+                                double* y,
+                                unsigned int Nbr,
+                                int block_dimM,
+                                int block_dimN);
+
 };
 
 } //namespace Opm
