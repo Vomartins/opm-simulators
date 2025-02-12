@@ -74,7 +74,6 @@ private:
     std::vector<unsigned int> Brows;
     std::vector<double> z1;          // z1 = B * x
     std::vector<double> z2;          // z2 = D^-1 * B * x
-    void *UMFPACK_Symbolic, *UMFPACK_Numeric;
 
     // RocSOLVER
     rocblas_int rocM;
@@ -97,9 +96,6 @@ private:
     rocblas_operation operation = rocblas_operation_none;
     double *d_z;
     double *d_rhs;
-    //int matrixDtransfer;
-
-    int dataTransfer;
 
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well

@@ -51,9 +51,6 @@
 
 extern double ctime_mswapply;
 
-extern double matrix_save;
-extern double vector_save;
-
 #define HIP_CHECK(stat)                               \
     {                                                 \
         if(stat != hipSuccess)                        \

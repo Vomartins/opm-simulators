@@ -31,9 +31,10 @@
 extern double ctime_msw;
 extern double ctime_mswperfrate;
 extern double ctime_mswapply;
-extern double ctime_mswdatatransd;
-extern double ctime_welllsD;
 extern double ctime_alloc;
+extern double ctime_mswdatatransd;
+extern double ctime_wellLU;
+extern double ctime_welllsD;
 extern double ctime_wellBx;
 extern double ctime_wellCz;
 
@@ -200,6 +201,8 @@ namespace Opm
             os << fmt::format("       Msw alloc time:                    {:7.5f} s", ctime_alloc);
             os << std::endl;
             os << fmt::format("       Msw data transfer time (B, C, D):  {:7.5f} s", ctime_mswdatatransd);
+            os << std::endl;
+            os << fmt::format("       LU factorization:                  {:7.5f} s", ctime_wellLU);
             os << std::endl;
             os << fmt::format("       Msw v=Bx:                          {:7.5f} s", ctime_wellBx);
             os << std::endl;

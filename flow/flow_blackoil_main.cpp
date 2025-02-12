@@ -28,13 +28,11 @@ double ctime_msw = 0.0;
 double ctime_mswperfrate = 0.0;
 double ctime_mswapply = 0.0;
 double ctime_mswdatatransd = 0.0;
+double ctime_wellLU = 0.0;
 double ctime_welllsD = 0.0;
 double ctime_wellBx = 0.0;
 double ctime_wellCz = 0.0;
 double ctime_alloc = 0.0;
-
-double matrix_save = 1.0;
-double vector_save = 1.0;
 
 double dmatrix_apply_count = 0.0;
 
