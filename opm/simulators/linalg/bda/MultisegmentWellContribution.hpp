@@ -37,6 +37,8 @@
 #include <rocblas/rocblas.h>
 #include <rocsolver/rocsolver.h>
 
+#include <opm/simulators/timestepping/SimulatorReport.hpp>
+
 namespace Opm
 {
 

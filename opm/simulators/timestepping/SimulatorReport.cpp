@@ -44,8 +44,8 @@ namespace Opm
     {
         return SimulatorReportSingle{1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
                                      7.0, 8.0, 9.0, 10.0, 11.0,
-                                     12, 13, 14, 15, 16, 17,
-                                     true, false, 18, 19.0, 20.0};
+                                     12.0, 13, 14, 15, 16, 17, 18,
+                                     true, false, 19, 20.0, 21.0};
     }
 
     bool SimulatorReportSingle::operator==(const SimulatorReportSingle& rhs) const
@@ -71,7 +71,8 @@ namespace Opm
                this->well_group_control_changed == rhs.well_group_control_changed &&
                this->exit_status == rhs.exit_status &&
                this->global_time == rhs.global_time &&
-               this->timestep_length == rhs.timestep_length;
+               this->timestep_length == rhs.timestep_length &&
+               this->well_solver_time == rhs.well_solver_time;
     }
 
     void SimulatorReportSingle::operator+=(const SimulatorReportSingle& sr)
@@ -196,7 +197,7 @@ namespace Opm
             os << std::endl;
             os << fmt::format("  Msw computePerfRate time:      {:7.5f} s", ctime_mswperfrate);
             os << std::endl;
-            os << fmt::format("  Msw apply time:                {:7.5f} s", ctime_mswapply);
+            os << fmt::format("  Msw apply time:                {:7.5f} s", well_solver_time);
             os << std::endl;
             os << fmt::format("       Msw alloc time:                    {:7.5f} s", ctime_alloc);
             os << std::endl;

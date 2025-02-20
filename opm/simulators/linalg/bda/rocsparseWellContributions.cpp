@@ -40,6 +40,7 @@
 #include <opm/common/ErrorMacros.hpp>
 
 #include <opm/simulators/linalg/bda/MultisegmentWellContribution.hpp>
+#include <opm/simulators/timestepping/SimulatorReport.hpp>
 
 #include <hip/hip_runtime.h>
 
@@ -211,6 +212,9 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
 
 void WellContributionsRocsparse::apply(double *d_x, double *d_y){
     //std::cout << "number of standard wells: " << num_std_wells << std::endl;
+    SimulatorReportSingle report;
+    Dune::Timer applyMethod_timer;
+    applyMethod_timer.start();
     if(num_std_wells > 0){
         apply_stdwells(d_x, d_y);
     }
@@ -218,6 +222,8 @@ void WellContributionsRocsparse::apply(double *d_x, double *d_y){
     if(num_ms_wells > 0){
         apply_mswells(d_x, d_y);
     }
+    applyMethod_timer.stop();
+    report.well_solver_time += applyMethod_timer.lastElapsed();
 }
 
 void WellContributionsRocsparse::setStream(hipStream_t stream_){

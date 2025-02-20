@@ -43,6 +43,7 @@ namespace Opm
         double linear_solve_time = 0.0;
         double update_time = 0.0;
         double output_write_time = 0.0;
+        double well_solver_time = 0.0;
 
         unsigned int total_well_iterations = 0;
         unsigned int total_linearizations = 0;
@@ -82,6 +83,7 @@ namespace Opm
             serializer(linear_solve_time);
             serializer(update_time);
             serializer(output_write_time);
+            serializer(well_solver_time);
             serializer(total_well_iterations);
             serializer(total_linearizations);
             serializer(total_newton_iterations);
