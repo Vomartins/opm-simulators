@@ -126,7 +126,7 @@ __global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
 
 
     // Q: When threadRow is >= bsM?
-    if (threadRow < bsM) {
+    //if (threadRow < bsM) {
         unsigned int yidx = blockRow * bsM + threadRow;
         Scalar local_sum = 0.0;
 
@@ -145,7 +145,7 @@ __global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
 
         // Write the result back to global memory
         y[yidx] = local_sum;
-    }
+        //}
 }
 
 template <class Scalar>
@@ -199,6 +199,66 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
             y[yidx] = shared_data[shared_idx];
         }
     }
+}
+
+template <class Scalar>
+__global__ void reduction_operator(const unsigned int *cols,
+                                        const unsigned int *rows,
+                                        Scalar *x_elem,
+                                        const Scalar *x,
+                                        const int block_dimN)
+{
+    const unsigned int bsN = block_dimN;
+
+    const unsigned int blockRow = blockIdx.x;  // Each GPU block handles one block row
+    const unsigned int first_block = rows[blockRow];
+    const unsigned int last_block = rows[blockRow + 1];
+
+    for (unsigned int block = first_block; block < last_block; block++) {
+        for (unsigned int c = 0; c < bsN; c++) {
+            unsigned int xidx = cols[block] * bsN + c;
+
+            x_elem[block*bsN+c] = x[xidx];
+        }
+    }
+}
+
+template <class Scalar>
+__global__ void parallel_V3blocksrmvB_x_k(const Scalar *vals,
+                                        const unsigned int *rows,
+                                        const Scalar *x_elem,
+                                        Scalar *y,
+                                        const int block_dimM,
+                                        const int block_dimN)
+{
+    const unsigned int bsM = block_dimM;
+    const unsigned int bsN = block_dimN;
+
+    const unsigned int blockRow = blockIdx.x;  // Each GPU block handles one block row
+    const unsigned int threadRow = threadIdx.x;  // Each thread handles one row of the block
+    const unsigned int first_block = rows[blockRow];
+    const unsigned int last_block = rows[blockRow + 1];
+
+
+    // Q: When threadRow is >= bsM?
+    //if (threadRow < bsM) {
+        unsigned int yidx = blockRow * bsM + threadRow;
+        Scalar local_sum = 0.0;
+
+        for (unsigned int block = first_block; block < last_block; block++) {
+            for (unsigned int c = 0; c < bsN; c++) {
+                unsigned int Bidx = block * bsM * bsN + threadRow * bsN + c;
+                Scalar B_elem = vals[Bidx];
+                unsigned int xidx = block*bsN+c;
+
+                // Perform the multiplication
+                local_sum += B_elem * x_elem[xidx];
+            }
+        }
+
+        // Write the result back to global memory
+        y[yidx] = local_sum;
+        //}
 }
 
 template<class Scalar>
@@ -393,6 +453,8 @@ void MultisegmentWellContribution::allocInit()
     checkHIPAlloc(d_Bcols);
     HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows)));
     checkHIPAlloc(d_Brows);
+    HIP_CALL(hipMalloc(&d_x_elem, sizeof(double)*dim*size(Bcols)));
+    checkHIPAlloc(d_x_elem);
 }
 
 void MultisegmentWellContribution::allocCall()
@@ -506,6 +568,30 @@ void MultisegmentWellContribution::parallelV2BlocksrmvB_x(double* vals,
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
+void MultisegmentWellContribution::parallelV3BlocksrmvB_x(double* vals,
+                                                        unsigned int* cols,
+                                                        unsigned int* rows,
+                                                        double* x,
+                                                        double* x_elem,
+                                                        double* y,
+                                                        unsigned int Nbr,
+                                                        int block_dimM,
+                                                        int block_dimN)
+{
+    int Nthreads = block_dimM;
+    int Nblocks = Nbr;
+
+    dim3 block(Nthreads, 1, 1);
+    dim3 grid(Nblocks, 1, 1);
+
+    reduction_operator<<<grid, block>>>(cols, rows, x_elem, x, block_dimN);
+
+    parallel_V3blocksrmvB_x_k<<<grid, block>>>(vals, rows, x_elem, y, block_dimM, block_dimN);
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+}
+
 void MultisegmentWellContribution::serialBlocksrmvC_z(double* vals,
                                                       unsigned int* cols,
                                                       unsigned int* rows,
@@ -581,8 +667,9 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     Dune::Timer contribsCalc_timer;
     contribsCalc_timer.start();
     //serialBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    //parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //parallelV3BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_x_elem, d_z, size(Brows) - 1, dim_wells, dim);
     contribsCalc_timer.stop();
     ctime_wellBx += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
@@ -591,8 +678,8 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     ctime_welllsD += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
     //serialBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
-    //parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
-    parallelV2BlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    //parallelV2BlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     contribsCalc_timer.stop();
     ctime_wellCz += contribsCalc_timer.lastElapsed();
 }

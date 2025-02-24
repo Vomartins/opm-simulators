@@ -99,6 +99,8 @@ private:
     double *d_z;
     double *d_rhs;
 
+    double *d_x_elem;         // Auxiliary array to multiply Bw*xr in a contiguous memory access
+
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well
     unsigned int getColIdx(unsigned int idx);
@@ -173,16 +175,6 @@ public:
                               int block_dimM,
                               int block_dimN);
 
-    void parallelV1BlocksrmvB_x(double* vals,
-                              unsigned int* cols,
-                              unsigned int* rows,
-                              double* x,
-                              double* y,
-                              unsigned int Nbr,
-                              int block_dimM,
-                              int block_dimN,
-                              int Nnnzb);
-
     void parallelV2BlocksrmvB_x(double* vals,
                                 unsigned int* cols,
                                 unsigned int* rows,
@@ -191,6 +183,16 @@ public:
                                 unsigned int Nbr,
                                 int block_dimM,
                                 int block_dimN);
+
+    void parallelV3BlocksrmvB_x(double* vals,
+                              unsigned int* cols,
+                              unsigned int* rows,
+                              double* x,
+                              double* x_elem,
+                              double* y,
+                              unsigned int Nbr,
+                              int block_dimM,
+                              int block_dimN);
 
     void serialBlocksrmvC_z(double* vals,
                             unsigned int* cols,
