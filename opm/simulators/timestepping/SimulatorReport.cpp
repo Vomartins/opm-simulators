@@ -28,6 +28,12 @@
 #include <ostream>
 #include <fmt/format.h>
 
+extern double ctime_mswapply;
+extern double ctime_mswdatatrans;
+extern double ctime_welllsD;
+extern double ctime_wellBx;
+extern double ctime_wellCz;
+
 namespace Opm
 {
     SimulatorReportSingle SimulatorReportSingle::serializationTestObject()
@@ -86,8 +92,8 @@ namespace Opm
         }
         max_linear_iterations = std::max(max_linear_iterations, sr.total_linear_iterations);
 
-        // It makes no sense adding time points. Therefore, do not 
-        // overwrite the value of global_time which gets set in 
+        // It makes no sense adding time points. Therefore, do not
+        // overwrite the value of global_time which gets set in
         // NonlinearSolver.hpp by the line:
         //     report.global_time = timer.simulationTimeElapsed();
     }
@@ -179,6 +185,16 @@ namespace Opm
 
             os << fmt::format("  Output write time:          {:7.2f} s",
                               output_write_time + (failureReport ? failureReport->output_write_time : 0.0));
+            os << std::endl;
+            os << fmt::format("  Msw apply time:                {:7.5f} s", ctime_mswapply);
+            os << std::endl;
+            os << fmt::format("       Msw data transfer time (B, C, D):  {:7.5f} s", ctime_mswdatatrans);
+            os << std::endl;
+            os << fmt::format("       Msw v=Bx:                          {:7.5f} s", ctime_wellBx);
+            os << std::endl;
+            os << fmt::format("       Msw Dz=v:                          {:7.5f} s", ctime_welllsD);
+            os << std::endl;
+            os << fmt::format("       Msw y = y-Cz:                      {:7.5f} s", ctime_wellCz);
             os << std::endl;
         }
 

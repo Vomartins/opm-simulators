@@ -19,6 +19,12 @@
 
 #include <flow/flow_blackoil.hpp>
 
+double ctime_mswapply = 0.0;
+double ctime_mswdatatrans = 0.0;
+double ctime_welllsD = 0.0;
+double ctime_wellBx = 0.0;
+double ctime_wellCz = 0.0;
+
 int main(int argc, char** argv)
 {
     return Opm::flowBlackoilTpfaMainStandalone(argc, argv);

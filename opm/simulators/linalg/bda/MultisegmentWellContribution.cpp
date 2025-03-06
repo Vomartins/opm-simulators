@@ -26,6 +26,10 @@
 
 #include <opm/simulators/linalg/bda/MultisegmentWellContribution.hpp>
 
+extern double ctime_welllsD;
+extern double ctime_wellBx;
+extern double ctime_wellCz;
+
 namespace Opm
 {
 
@@ -73,8 +77,10 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
     // reset z1 and z2
     std::fill(z1.begin(), z1.end(), 0.0);
     std::fill(z2.begin(), z2.end(), 0.0);
+    Dune::Timer contribsCalc_timer;
 
     // z1 = B * x
+    contribsCalc_timer.start();
     for (unsigned int row = 0; row < Mb; ++row) {
         // for every block in the row
         for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
@@ -88,13 +94,19 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
             }
         }
     }
+    contribsCalc_timer.stop();
+    ctime_wellBx += contribsCalc_timer.lastElapsed();
 
     // z2 = D^-1 * (B * x)
     // umfpack
+    contribsCalc_timer.start();
     umfpack_di_solve(UMFPACK_A, Dcols.data(), Drows.data(), Dvals.data(), z2.data(), z1.data(), UMFPACK_Numeric, nullptr, nullptr);
+    contribsCalc_timer.stop();
+    ctime_welllsD += contribsCalc_timer.lastElapsed();
 
     // y -= (C^T * z2)
     // y -= (C^T * (D^-1 * (B * x)))
+    contribsCalc_timer.start();
     for (unsigned int row = 0; row < Mb; ++row) {
         // for every block in the row
         for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
@@ -108,6 +120,8 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
             }
         }
     }
+    contribsCalc_timer.stop();
+    ctime_wellCz += contribsCalc_timer.lastElapsed();
 }
 
 #if HAVE_CUDA
@@ -118,4 +132,3 @@ void MultisegmentWellContribution::setCudaStream(cudaStream_t stream_)
 #endif
 
 } //namespace Opm
-
