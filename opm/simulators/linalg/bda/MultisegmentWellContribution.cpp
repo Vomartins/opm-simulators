@@ -191,7 +191,7 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
             if (threadRow < offset && threadRow + offset < bsN) {
                 shared_data[shared_idx] += shared_data[shared_idx + offset];
             }
-            __syncthreads();
+            //__syncthreads();
         }
 
         // Only the first thread in the wave writes the final result to global memory
@@ -499,7 +499,6 @@ void MultisegmentWellContribution::freeCall()
 
 void MultisegmentWellContribution::solveSystem()
 {
-
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
 
     HIP_CALL(hipDeviceSynchronize());
@@ -667,9 +666,9 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     Dune::Timer contribsCalc_timer;
     contribsCalc_timer.start();
     //serialBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     //parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    //parallelV3BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_x_elem, d_z, size(Brows) - 1, dim_wells, dim);
+    parallelV3BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_x_elem, d_z, size(Brows) - 1, dim_wells, dim);
     contribsCalc_timer.stop();
     ctime_wellBx += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
