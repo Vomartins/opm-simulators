@@ -73,12 +73,17 @@ private:
     std::vector<double> Bvals;
     std::vector<int> Dcols;              // Columnpointers, contains M+1 entries
     std::vector<unsigned int> Bcols;
-    std::vector<int> Drows;              // Rowindicies, contains DnumBlocks*dim*dim_wells entries
+    std::vector<int> Drows;              // Rowindicies, contains DnumBlocks*dim_wells*dim_wells entries
     std::vector<unsigned int> Brows;
     std::vector<double> z1;          // z1 = B * x
     std::vector<double> z2;          // z2 = D^-1 * B * x
 
     // RocSPARSE
+    // Auxiliary vectors to convert D to CSR format
+    std::vector<double> Dvals_;
+    std::vector<int> Dcols_;
+    std::vector<int> Drows_;
+
     double one  = 1.0;
     rocsparse_int rocM;
     rocsparse_int rocN;
@@ -95,8 +100,8 @@ private:
 
     // Device arrays
     double *d_Dvals;
-    rocsparse_int *d_Dcols;
-    rocsparse_int *d_Drows;
+    int *d_Dcols;
+    int *d_Drows;
     double *d_Cvals;
     double *d_Bvals;
     unsigned int *d_Bcols;
@@ -157,6 +162,8 @@ public:
     void freeInit();
 
     void freeCall();
+
+    void squareCSCtoCSR(std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols, std::vector<double>& Dvals_, std::vector<int>& Drows_, std::vector<int>& Dcols_);
 
     void analyseMatrix();
 
