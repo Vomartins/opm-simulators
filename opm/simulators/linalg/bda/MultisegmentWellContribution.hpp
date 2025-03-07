@@ -36,6 +36,7 @@
 #include <hip/hip_version.h>
 #include <rocblas/rocblas.h>
 #include <rocsolver/rocsolver.h>
+#include <rocsparse/rocsparse.h>
 
 #include <opm/simulators/timestepping/SimulatorReport.hpp>
 
@@ -77,28 +78,32 @@ private:
     std::vector<double> z1;          // z1 = B * x
     std::vector<double> z2;          // z2 = D^-1 * B * x
 
-    // RocSOLVER
-    rocblas_int rocM;
-    rocblas_int rocN;
-    rocblas_int Nrhs = 1;
-    rocblas_int lda;
-    rocblas_int ldb;
-    rocblas_int *info;
-    rocblas_int *ipiv;
-    int ipivDim;
-    double *Dmatrix;
-    double *d_Dmatrix;
-    double *h_Dmatrix;
+    // RocSPARSE
+    double one  = 1.0;
+    rocsparse_int rocM;
+    rocsparse_int rocN;
+    rocsparse_int Nrhs = 1;
+    rocsparse_int lda;
+    rocsparse_int ldb;
+    rocsparse_mat_info ilu_info;
+    rocsparse_mat_descr descr_A, descr_M, descr_L, descr_U;
+    std::size_t d_bufferSize_M, d_bufferSize_L, d_bufferSize_U, d_bufferSize;
+    void *d_buffer;
+    rocsparse_handle handle;
+    rocsparse_operation operation = rocsparse_operation_none;
+    rocsparse_int nnzs;
+
+    // Device arrays
+    double *d_Dvals;
+    rocsparse_int *d_Dcols;
+    rocsparse_int *d_Drows;
     double *d_Cvals;
     double *d_Bvals;
     unsigned int *d_Bcols;
     unsigned int *d_Brows;
-    void *d_buffer;
-    rocblas_handle handle;
-    rocblas_operation operation = rocblas_operation_none;
     double *d_z;
+    double *d_z_aux;
     double *d_rhs;
-
     double *d_x_elem;         // Auxiliary array to multiply Bw*xr in a contiguous memory access
 
     /// Translate the columnIndex if needed
@@ -152,6 +157,8 @@ public:
     void freeInit();
 
     void freeCall();
+
+    void analyseMatrix();
 
     void solveSystem();
 
