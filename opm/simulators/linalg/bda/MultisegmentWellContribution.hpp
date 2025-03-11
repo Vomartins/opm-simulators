@@ -90,18 +90,21 @@ private:
     rocsparse_int Nrhs = 1;
     rocsparse_int lda;
     rocsparse_int ldb;
-    rocsparse_mat_info ilu_info;
-    rocsparse_mat_descr descr_A, descr_M, descr_L, descr_U;
-    std::size_t d_bufferSize_M, d_bufferSize_L, d_bufferSize_U, d_bufferSize;
-    void *d_buffer;
+    //rocsparse_mat_info ilu_info;
+    std::vector<rocsparse_mat_info> ilu_info;
+    std::vector<rocsparse_mat_info> L_info;
+    std::vector<rocsparse_mat_info> U_info;
+    rocsparse_mat_descr descr_D, descr_L, descr_U;
+    std::size_t d_bufferSize_D, d_bufferSize_L, d_bufferSize_U, d_bufferSize;
+    void *d_buffer_D, *d_buffer_L, *d_buffer_U;
     rocsparse_handle handle;
     rocsparse_operation operation = rocsparse_operation_none;
     rocsparse_int nnzs;
 
     // Device arrays
     double *d_Dvals;
-    int *d_Dcols;
-    int *d_Drows;
+    rocsparse_int *d_Dcols;
+    rocsparse_int *d_Drows;
     double *d_Cvals;
     double *d_Bvals;
     unsigned int *d_Bcols;
