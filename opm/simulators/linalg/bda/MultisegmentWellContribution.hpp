@@ -95,6 +95,7 @@ private:
     std::vector<rocsparse_mat_info> L_info;
     std::vector<rocsparse_mat_info> U_info;
     rocsparse_mat_descr descr_D, descr_L, descr_U;
+    rocsparse_mat_descr csr_descr, bsr_descr;
     std::size_t d_bufferSize_D, d_bufferSize_L, d_bufferSize_U, d_bufferSize;
     void *d_buffer_D, *d_buffer_L, *d_buffer_U;
     rocsparse_handle handle;
@@ -105,6 +106,9 @@ private:
     double *d_Dvals;
     rocsparse_int *d_Dcols;
     rocsparse_int *d_Drows;
+    double *d_Dvals_;
+    rocsparse_int *d_Dcols_;
+    rocsparse_int *d_Drows_;
     double *d_Cvals;
     double *d_Bvals;
     unsigned int *d_Bcols;
@@ -167,6 +171,8 @@ public:
     void freeCall();
 
     void squareCSCtoCSR(std::vector<double> vals, std::vector<int> rows, std::vector<int> cols, std::vector<double>& vals_, std::vector<int>& rows_, std::vector<int>& cols_);
+
+    void convertCSRtoBSR();
 
     void analyseMatrix();
 
