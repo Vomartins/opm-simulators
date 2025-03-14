@@ -440,7 +440,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     ROCSPARSE_CALL(rocsparse_create_handle(&handle));
     convertCSRtoBSR();
     analyseMatrix();
-    ROCSPARSE_CALL(rocsparse_dbsrilu0(handle, rocsparse_direction_column, Mb, DnumBlocks, descr_D,
+    ROCSPARSE_CALL(rocsparse_dbsrilu0(handle, rocsparse_direction_row, Mb, nnzb, descr_D,
         d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, rocsparse_solve_policy_auto, d_buffer));
     HIP_CALL(hipDeviceSynchronize());
     LU_timer.stop();
@@ -533,7 +533,7 @@ void MultisegmentWellContribution::convertCSRtoBSR()
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&csr_descr));
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&bsr_descr));
 
-    ROCSPARSE_CALL(rocsparse_csr2bsr_nnz(handle, rocsparse_direction_column, M, M, csr_descr, d_Drows_, d_Dcols_,
+    ROCSPARSE_CALL(rocsparse_csr2bsr_nnz(handle, rocsparse_direction_row, M, M, csr_descr, d_Drows_, d_Dcols_,
         dim_wells, bsr_descr, d_Drows, nnzTotalHostPtr));
     nnzb = *nnzTotalHostPtr;
 
@@ -542,7 +542,7 @@ void MultisegmentWellContribution::convertCSRtoBSR()
     HIP_CALL(hipMalloc(&d_Dcols, sizeof(rocsparse_int)*nnzb));
     checkHIPAlloc(d_Dcols);
 
-    ROCSPARSE_CALL(rocsparse_dcsr2bsr(handle, rocsparse_direction_column, M, M, csr_descr, d_Dvals_, d_Drows_, d_Dcols_,
+    ROCSPARSE_CALL(rocsparse_dcsr2bsr(handle, rocsparse_direction_row, M, M, csr_descr, d_Dvals_, d_Drows_, d_Dcols_,
                                      dim_wells, bsr_descr, d_Dvals, d_Drows, d_Dcols));
 
     HIP_CALL(hipDeviceSynchronize());
@@ -573,22 +573,22 @@ void MultisegmentWellContribution::analyseMatrix()
     ROCSPARSE_CALL(rocsparse_create_mat_info(&ilu_info));
 
     // Obtain required buffer sizes
-    ROCSPARSE_CALL(rocsparse_dbsrilu0_buffer_size(handle, rocsparse_direction_column, Mb, DnumBlocks,
+    ROCSPARSE_CALL(rocsparse_dbsrilu0_buffer_size(handle, rocsparse_direction_row, Mb, nnzb,
 						  descr_D, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, &d_bufferSize_D));
-    ROCSPARSE_CALL(rocsparse_dbsrsv_buffer_size(handle, rocsparse_direction_column, operation, Mb, DnumBlocks,
+    ROCSPARSE_CALL(rocsparse_dbsrsv_buffer_size(handle, rocsparse_direction_row, operation, Mb, nnzb,
 						descr_L, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, &d_bufferSize_L));
-    ROCSPARSE_CALL(rocsparse_dbsrsv_buffer_size(handle, rocsparse_direction_column, operation, Mb, DnumBlocks,
+    ROCSPARSE_CALL(rocsparse_dbsrsv_buffer_size(handle, rocsparse_direction_row, operation, Mb, nnzb,
 						descr_U, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, &d_bufferSize_U));
     d_bufferSize = std::max(d_bufferSize_D, std::max(d_bufferSize_L, d_bufferSize_U));
     HIP_CALL(hipMalloc(&d_buffer, d_bufferSize));
 
-    ROCSPARSE_CALL(rocsparse_dbsrilu0_analysis(handle, rocsparse_direction_column, Mb, DnumBlocks,
+    ROCSPARSE_CALL(rocsparse_dbsrilu0_analysis(handle, rocsparse_direction_row, Mb, nnzb,
         descr_D, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info,
         rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer));
-    ROCSPARSE_CALL(rocsparse_dbsrsv_analysis(handle,  rocsparse_direction_column, operation, Mb, DnumBlocks,
+    ROCSPARSE_CALL(rocsparse_dbsrsv_analysis(handle,  rocsparse_direction_row, operation, Mb, nnzb,
         descr_L, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info,
         rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer));
-    ROCSPARSE_CALL(rocsparse_dbsrsv_analysis(handle,  rocsparse_direction_column, operation, Mb, DnumBlocks,
+    ROCSPARSE_CALL(rocsparse_dbsrsv_analysis(handle,  rocsparse_direction_row, operation, Mb, nnzb,
         descr_U, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info,
         rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer));
 
@@ -606,9 +606,9 @@ void MultisegmentWellContribution::analyseMatrix()
 
 void MultisegmentWellContribution::solveSystem()
 {
-    ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_column, operation, Mb, DnumBlocks, &one,
+    ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_row, operation, Mb, nnzb, &one,
         descr_L, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, d_z, d_z_aux, rocsparse_solve_policy_auto, d_buffer));
-    ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_column, operation, Mb, DnumBlocks, &one,
+    ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_row, operation, Mb, nnzb, &one,
         descr_U, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, d_z_aux, d_z, rocsparse_solve_policy_auto, d_buffer));
 
     HIP_CALL(hipDeviceSynchronize());
