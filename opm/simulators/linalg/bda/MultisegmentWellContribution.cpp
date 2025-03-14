@@ -19,6 +19,7 @@
 
 
 #include <config.h> // CMake
+#include <cstdlib>
 #include <opm/common/TimingMacros.hpp>
 #if HAVE_UMFPACK
 #include <dune/istl/umfpack.hh>
@@ -438,9 +439,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     // LU factorization
     ROCSPARSE_CALL(rocsparse_create_handle(&handle));
     convertCSRtoBSR();
-    std::cout << "########### D Converted ###########" << std::endl;
     analyseMatrix();
-    std::cout << "########### D Analysed ###########" << std::endl;
     ROCSPARSE_CALL(rocsparse_dbsrilu0(handle, rocsparse_direction_column, Mb, DnumBlocks, descr_D,
         d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, rocsparse_solve_policy_auto, d_buffer));
     HIP_CALL(hipDeviceSynchronize());
@@ -453,12 +452,10 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
                                                                    ilu_info,
                                                                    &position))
     {
-        printf("L has structural and/or numerical zero at L(%d,%d)\n",
+        printf("################ L has structural and/or numerical zero at L(%d,%d)\n",
                position,
                position);
     }
-
-    std::cout << "########### GPU MSW Constructed ###########" << std::endl;
 }
 
 MultisegmentWellContribution::~MultisegmentWellContribution()
@@ -487,10 +484,10 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
 
 void MultisegmentWellContribution::allocInit()
 {
-    HIP_CALL(hipMalloc(&d_Dvals, sizeof(double)*size(Dvals_)));
-    checkHIPAlloc(d_Dvals);
-    HIP_CALL(hipMalloc(&d_Dcols, sizeof(rocsparse_int)*DnumBlocks));
-    checkHIPAlloc(d_Dcols);
+    // HIP_CALL(hipMalloc(&d_Dvals, sizeof(double)*size(Dvals_)));
+    // checkHIPAlloc(d_Dvals);
+    // HIP_CALL(hipMalloc(&d_Dcols, sizeof(rocsparse_int)*DnumBlocks));
+    // checkHIPAlloc(d_Dcols);
     HIP_CALL(hipMalloc(&d_Drows, sizeof(rocsparse_int)*(Mb+1)));
     checkHIPAlloc(d_Drows);
     HIP_CALL(hipMalloc(&d_Dvals_, sizeof(double)*size(Dvals_)));
@@ -534,15 +531,16 @@ void MultisegmentWellContribution::matricesToDevice()
 void MultisegmentWellContribution::convertCSRtoBSR()
 {
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&csr_descr));
-    ROCSPARSE_CALL(rocsparse_set_mat_type(csr_descr, rocsparse_matrix_type_general));
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&bsr_descr));
-    ROCSPARSE_CALL(rocsparse_set_mat_type(bsr_descr, rocsparse_matrix_type_general));
 
-    std::cout << size(Dvals_) << " --- " << size(Dcols_) << " --- " << size(Drows_) << std::endl;
+    ROCSPARSE_CALL(rocsparse_csr2bsr_nnz(handle, rocsparse_direction_column, M, M, csr_descr, d_Drows_, d_Dcols_,
+        dim_wells, bsr_descr, d_Drows, nnzTotalHostPtr));
+    nnzb = *nnzTotalHostPtr;
 
-    std::cout << M << std::endl;
-
-    std::cout << dim_wells << std::endl;
+    HIP_CALL(hipMalloc(&d_Dvals, sizeof(double)*nnzb*dim_wells*dim_wells));
+    checkHIPAlloc(d_Dvals);
+    HIP_CALL(hipMalloc(&d_Dcols, sizeof(rocsparse_int)*nnzb));
+    checkHIPAlloc(d_Dcols);
 
     ROCSPARSE_CALL(rocsparse_dcsr2bsr(handle, rocsparse_direction_column, M, M, csr_descr, d_Dvals_, d_Drows_, d_Dcols_,
                                      dim_wells, bsr_descr, d_Dvals, d_Drows, d_Dcols));
@@ -599,7 +597,7 @@ void MultisegmentWellContribution::analyseMatrix()
                                                                   ilu_info,
                                                                   &position))
     {
-        printf("D has structural zero at D(%d,%d)\n", position, position);
+        printf("---------------- D has structural zero at D(%d,%d)\n", position, position);
     }
 
     HIP_CALL(hipDeviceSynchronize());
@@ -608,7 +606,6 @@ void MultisegmentWellContribution::analyseMatrix()
 
 void MultisegmentWellContribution::solveSystem()
 {
-    std::cout << "Solve System" << std::endl;
     ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_column, operation, Mb, DnumBlocks, &one,
         descr_L, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, d_z, d_z_aux, rocsparse_solve_policy_auto, d_buffer));
     ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_column, operation, Mb, DnumBlocks, &one,

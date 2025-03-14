@@ -98,6 +98,8 @@ private:
     void *d_buffer;
     rocsparse_handle handle;
     rocsparse_operation operation = rocsparse_operation_none;
+    rocsparse_int nnzb;
+    rocsparse_int* nnzTotalHostPtr = &nnzb;
 
     // Device arrays
     double *d_Dvals;
