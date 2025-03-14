@@ -441,6 +441,12 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     analyseMatrix();
     ROCSPARSE_CALL(rocsparse_dcsrilu0(handle, rocM, nnzs, descr_M,
 				      d_Dvals, d_Drows, d_Dcols, ilu_info, rocsparse_solve_policy_auto, d_buffer));
+
+    rocsparse_int zero_position;
+    rocsparse_status status = rocsparse_csrilu0_zero_pivot(handle, ilu_info, &zero_position);
+    if (status != rocsparse_status_success) {
+        printf("--- RocSPARSE Error --- L has structural and/or numerical zero at L(%d,%d)\n", zero_position, zero_position);
+    }
     LU_timer.stop();
     ctime_wellLU += LU_timer.lastElapsed();
 }
