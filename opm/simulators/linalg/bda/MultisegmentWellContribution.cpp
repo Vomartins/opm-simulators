@@ -395,7 +395,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     Mb(Mb_),                  // number of blockrows in C, D and B
     dim(dim_),                // size of blockvectors in vectors x and y, equal to MultisegmentWell::numEq
     dim_wells(dim_wells_),    // size of blocks in C, B and D, equal to MultisegmentWell::numWellEq
-    M(Mb_ * dim_wells),       // number of rows, M == dim_wells*Mb
+    M(Mb * dim_wells),        // number of rows, M == dim_wells*Mb
     DnumBlocks(DnumBlocks_),  // number of blocks in D
     // copy data for matrix D into vectors to prevent it going out of scope
     Cvals(std::move(Cvalues)),
@@ -408,9 +408,6 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 {
     z1.resize(M);
     z2.resize(M);
-    ilu_info.resize(DnumBlocks);
-    L_info.resize(DnumBlocks);
-    U_info.resize(DnumBlocks);
 
     Dvals_.resize(size(Dvals));
     Dcols_.resize(size(Dvals));
@@ -422,8 +419,6 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     rocN = rocM;
     lda = rocM > rocN ? rocM : rocN;
     ldb = M;
-
-    nnzs = size(Dvals);
 
     Dune::Timer alloc_timer;
     alloc_timer.start();
@@ -441,38 +436,29 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     Dune::Timer LU_timer;
     LU_timer.start();
     // LU factorization
+    ROCSPARSE_CALL(rocsparse_create_handle(&handle));
     convertCSRtoBSR();
+    std::cout << "########### D Converted ###########" << std::endl;
     analyseMatrix();
-    for (unsigned int i = 0; i < DnumBlocks; ++i) {
-        int block_offset = i * (dim_wells * dim_wells);
-        ROCSPARSE_CALL(rocsparse_dcsrilu0_analysis(handle, \
-                                dim_wells, dim_wells * dim_wells, descr_D, \
-                                &d_Dvals[block_offset], &d_Drows[i * (dim_wells + 1)], &d_Dcols[i * dim_wells], \
-                                ilu_info[i], rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer_D));
-        std::cout << "Matrix analysed - ILU0 " <<std::endl;
-        ROCSPARSE_CALL(rocsparse_dcsrsv_analysis(handle, operation, \
-                                dim_wells, dim_wells * dim_wells, descr_L, \
-                                &d_Dvals[block_offset], &d_Drows[i * (dim_wells + 1)], &d_Dcols[i * dim_wells], \
-                                L_info[i], rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer_L));
-        std::cout << "Matrix analysed - Lower " <<std::endl;
-        ROCSPARSE_CALL(rocsparse_dcsrsv_analysis(handle, operation, \
-                                dim_wells, dim_wells * dim_wells, descr_U, \
-                                &d_Dvals[block_offset], &d_Drows[i * (dim_wells + 1)], &d_Dcols[i * dim_wells], \
-                                U_info[i], rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer_U));
-        std::cout << "Matrix analysed - Upper " <<std::endl;
-
-        rocsparse_int zero_position;
-        rocsparse_status status = rocsparse_csrilu0_zero_pivot(handle, ilu_info[i], &zero_position);
-        if (status != rocsparse_status_success) {
-            printf("--- RocSPARSE Error --- L has structural and/or numerical zero at L(%d,%d)\n", zero_position, zero_position);
-        }
-
-        ROCSPARSE_CALL(rocsparse_dcsrilu0(handle, dim_wells, dim_wells * dim_wells, descr_D, \
-                                &d_Dvals[block_offset], &d_Drows[i * (dim_wells + 1)], &d_Dcols[i * dim_wells], \
-								ilu_info[i], rocsparse_solve_policy_auto, d_buffer_D));
-    }
+    std::cout << "########### D Analysed ###########" << std::endl;
+    ROCSPARSE_CALL(rocsparse_dbsrilu0(handle, rocsparse_direction_column, Mb, DnumBlocks, descr_D,
+        d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, rocsparse_solve_policy_auto, d_buffer));
+    HIP_CALL(hipDeviceSynchronize());
     LU_timer.stop();
     ctime_wellLU += LU_timer.lastElapsed();
+
+    // Check for zero pivot
+    rocsparse_int position;
+    if(rocsparse_status_zero_pivot == rocsparse_bsrilu0_zero_pivot(handle,
+                                                                   ilu_info,
+                                                                   &position))
+    {
+        printf("L has structural and/or numerical zero at L(%d,%d)\n",
+               position,
+               position);
+    }
+
+    std::cout << "########### GPU MSW Constructed ###########" << std::endl;
 }
 
 MultisegmentWellContribution::~MultisegmentWellContribution()
@@ -483,13 +469,20 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     ROCSPARSE_CALL(rocsparse_destroy_mat_descr(descr_D));
     ROCSPARSE_CALL(rocsparse_destroy_mat_descr(descr_L));
     ROCSPARSE_CALL(rocsparse_destroy_mat_descr(descr_U));
-    for (unsigned int i = 0; i < DnumBlocks; ++i) {
-        ROCSPARSE_CALL(rocsparse_destroy_mat_info(ilu_info[i]));
-        ROCSPARSE_CALL(rocsparse_destroy_mat_info(L_info[i]));
-        ROCSPARSE_CALL(rocsparse_destroy_mat_info(U_info[i]));
-    }
-    freeInit();
-    freeCall();
+    ROCSPARSE_CALL(rocsparse_destroy_mat_info(ilu_info));
+    HIP_CALL(hipFree(d_buffer));
+    HIP_CALL(hipFree(d_Dvals));
+    HIP_CALL(hipFree(d_Dcols));
+    HIP_CALL(hipFree(d_Drows));
+    HIP_CALL(hipFree(d_Dvals_));
+    HIP_CALL(hipFree(d_Dcols_));
+    HIP_CALL(hipFree(d_Drows_));
+    HIP_CALL(hipFree(d_Cvals));
+    HIP_CALL(hipFree(d_Bvals));
+    HIP_CALL(hipFree(d_Bcols));
+    HIP_CALL(hipFree(d_Brows));
+    HIP_CALL(hipFree(d_z));
+    HIP_CALL(hipFree(d_z_aux));
 }
 
 void MultisegmentWellContribution::allocInit()
@@ -538,36 +531,23 @@ void MultisegmentWellContribution::matricesToDevice()
     HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
 }
 
-void MultisegmentWellContribution::freeInit()
-{
-    HIP_CALL(hipFree(d_Dvals));
-    HIP_CALL(hipFree(d_Dcols));
-    HIP_CALL(hipFree(d_Drows));
-    HIP_CALL(hipFree(d_Dvals_));
-    HIP_CALL(hipFree(d_Dcols_));
-    HIP_CALL(hipFree(d_Drows_));
-    HIP_CALL(hipFree(d_Cvals));
-    HIP_CALL(hipFree(d_Bvals));
-    HIP_CALL(hipFree(d_Bcols));
-    HIP_CALL(hipFree(d_Brows));
-
-}
-
-void MultisegmentWellContribution::freeCall()
-{
-    HIP_CALL(hipFree(d_z));
-    HIP_CALL(hipFree(d_z_aux));
-}
-
 void MultisegmentWellContribution::convertCSRtoBSR()
 {
-    ROCSPARSE_CALL(rocsparse_create_handle(&handle));
-
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&csr_descr));
+    ROCSPARSE_CALL(rocsparse_set_mat_type(csr_descr, rocsparse_matrix_type_general));
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&bsr_descr));
+    ROCSPARSE_CALL(rocsparse_set_mat_type(bsr_descr, rocsparse_matrix_type_general));
 
-    ROCSPARSE_CALL(rocsparse_dcsr2bsr(handle, rocsparse_direction_row, M, M, csr_descr, d_Dvals_, d_Drows_, d_Dcols_, \
+    std::cout << size(Dvals_) << " --- " << size(Dcols_) << " --- " << size(Drows_) << std::endl;
+
+    std::cout << M << std::endl;
+
+    std::cout << dim_wells << std::endl;
+
+    ROCSPARSE_CALL(rocsparse_dcsr2bsr(handle, rocsparse_direction_column, M, M, csr_descr, d_Dvals_, d_Drows_, d_Dcols_,
                                      dim_wells, bsr_descr, d_Dvals, d_Drows, d_Dcols));
+
+    HIP_CALL(hipDeviceSynchronize());
 }
 
 void MultisegmentWellContribution::analyseMatrix()
@@ -576,57 +556,63 @@ void MultisegmentWellContribution::analyseMatrix()
 
     // Create matrix descriptor for matrices D, L, and U
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_D));
-    ROCSPARSE_CALL(rocsparse_set_mat_type(descr_D, rocsparse_matrix_type_general));
-    ROCSPARSE_CALL(rocsparse_set_mat_index_base(descr_D, rocsparse_index_base_zero));
+    // ROCSPARSE_CALL(rocsparse_set_mat_type(descr_D, rocsparse_matrix_type_general));
+    // ROCSPARSE_CALL(rocsparse_set_mat_index_base(descr_D, rocsparse_index_base_zero));
 
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_L));
-    ROCSPARSE_CALL(rocsparse_set_mat_type(descr_L, rocsparse_matrix_type_general));
-    ROCSPARSE_CALL(rocsparse_set_mat_index_base(descr_L, rocsparse_index_base_zero));
+    // ROCSPARSE_CALL(rocsparse_set_mat_type(descr_L, rocsparse_matrix_type_general));
+    // ROCSPARSE_CALL(rocsparse_set_mat_index_base(descr_L, rocsparse_index_base_zero));
     ROCSPARSE_CALL(rocsparse_set_mat_fill_mode(descr_L, rocsparse_fill_mode_lower));
     ROCSPARSE_CALL(rocsparse_set_mat_diag_type(descr_L, rocsparse_diag_type_unit));
 
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_U));
-    ROCSPARSE_CALL(rocsparse_set_mat_type(descr_U, rocsparse_matrix_type_general));
-    ROCSPARSE_CALL(rocsparse_set_mat_index_base(descr_U, rocsparse_index_base_zero));
+    // ROCSPARSE_CALL(rocsparse_set_mat_type(descr_U, rocsparse_matrix_type_general));
+    // ROCSPARSE_CALL(rocsparse_set_mat_index_base(descr_U, rocsparse_index_base_zero));
     ROCSPARSE_CALL(rocsparse_set_mat_fill_mode(descr_U, rocsparse_fill_mode_upper));
     ROCSPARSE_CALL(rocsparse_set_mat_diag_type(descr_U, rocsparse_diag_type_non_unit));
 
     // Create matrix info structure
-    for (unsigned int i = 0; i < DnumBlocks; ++i) {
-        ROCSPARSE_CALL(rocsparse_create_mat_info(&ilu_info[i]));
-        ROCSPARSE_CALL(rocsparse_create_mat_info(&L_info[i]));
-        ROCSPARSE_CALL(rocsparse_create_mat_info(&U_info[i]));
-    }
+    ROCSPARSE_CALL(rocsparse_create_mat_info(&ilu_info));
 
     // Obtain required buffer sizes
-    ROCSPARSE_CALL(rocsparse_dcsrilu0_buffer_size(handle, dim_wells, dim_wells*dim_wells,
-						  descr_D, d_Dvals, d_Drows, d_Dcols, ilu_info[0], &d_bufferSize_D));
-    ROCSPARSE_CALL(rocsparse_dcsrsv_buffer_size(handle, operation, dim_wells, dim_wells*dim_wells,
-						descr_L, d_Dvals, d_Drows, d_Dcols, L_info[0], &d_bufferSize_L));
-    ROCSPARSE_CALL(rocsparse_dcsrsv_buffer_size(handle, operation, dim_wells, dim_wells*dim_wells,
-						descr_U, d_Dvals, d_Drows, d_Dcols, U_info[0], &d_bufferSize_U));
-    //d_bufferSize = std::max(d_bufferSize_D, std::max(d_bufferSize_L, d_bufferSize_U));
-    HIP_CALL(hipMalloc(&d_buffer_D, d_bufferSize_D));
-    HIP_CALL(hipMalloc(&d_buffer_L, d_bufferSize_L));
-    HIP_CALL(hipMalloc(&d_buffer_U, d_bufferSize_U));
+    ROCSPARSE_CALL(rocsparse_dbsrilu0_buffer_size(handle, rocsparse_direction_column, Mb, DnumBlocks,
+						  descr_D, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, &d_bufferSize_D));
+    ROCSPARSE_CALL(rocsparse_dbsrsv_buffer_size(handle, rocsparse_direction_column, operation, Mb, DnumBlocks,
+						descr_L, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, &d_bufferSize_L));
+    ROCSPARSE_CALL(rocsparse_dbsrsv_buffer_size(handle, rocsparse_direction_column, operation, Mb, DnumBlocks,
+						descr_U, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, &d_bufferSize_U));
+    d_bufferSize = std::max(d_bufferSize_D, std::max(d_bufferSize_L, d_bufferSize_U));
+    HIP_CALL(hipMalloc(&d_buffer, d_bufferSize));
+
+    ROCSPARSE_CALL(rocsparse_dbsrilu0_analysis(handle, rocsparse_direction_column, Mb, DnumBlocks,
+        descr_D, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info,
+        rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer));
+    ROCSPARSE_CALL(rocsparse_dbsrsv_analysis(handle,  rocsparse_direction_column, operation, Mb, DnumBlocks,
+        descr_L, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info,
+        rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer));
+    ROCSPARSE_CALL(rocsparse_dbsrsv_analysis(handle,  rocsparse_direction_column, operation, Mb, DnumBlocks,
+        descr_U, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info,
+        rocsparse_analysis_policy_reuse, rocsparse_solve_policy_auto, d_buffer));
+
+    rocsparse_int position;
+    if(rocsparse_status_zero_pivot == rocsparse_bsrilu0_zero_pivot(handle,
+                                                                  ilu_info,
+                                                                  &position))
+    {
+        printf("D has structural zero at D(%d,%d)\n", position, position);
+    }
+
+    HIP_CALL(hipDeviceSynchronize());
 }
 
 
 void MultisegmentWellContribution::solveSystem()
 {
-    for (unsigned int i = 0; i < DnumBlocks; ++i) {
-        int block_offset = i * (dim_wells * dim_wells);
-        int vec_offset = i * dim_wells;
-        ROCSPARSE_CALL(rocsparse_dcsrsv_solve(handle, \
-                                    operation, dim_wells, dim_wells * dim_wells, &one, descr_L, \
-                                    &d_Dvals[block_offset], &d_Drows[i * (dim_wells + 1)], &d_Dcols[i * dim_wells], \
-                                    L_info[i], d_z + vec_offset, d_z_aux + vec_offset, rocsparse_solve_policy_auto, d_buffer_L));
-        ROCSPARSE_CALL(rocsparse_dcsrsv_solve(handle,\
-                                    operation, dim_wells, dim_wells * dim_wells, &one, descr_U, \
-                                    &d_Dvals[block_offset], &d_Drows[i * (dim_wells + 1)], &d_Dcols[i * dim_wells], \
-                                    U_info[i], d_z_aux + vec_offset, d_z + vec_offset, rocsparse_solve_policy_auto, d_buffer_U));
-
-    }
+    std::cout << "Solve System" << std::endl;
+    ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_column, operation, Mb, DnumBlocks, &one,
+        descr_L, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, d_z, d_z_aux, rocsparse_solve_policy_auto, d_buffer));
+    ROCSPARSE_CALL(rocsparse_dbsrsv_solve(handle, rocsparse_direction_column, operation, Mb, DnumBlocks, &one,
+        descr_U, d_Dvals, d_Drows, d_Dcols, dim_wells, ilu_info, d_z_aux, d_z, rocsparse_solve_policy_auto, d_buffer));
 
     HIP_CALL(hipDeviceSynchronize());
 }
