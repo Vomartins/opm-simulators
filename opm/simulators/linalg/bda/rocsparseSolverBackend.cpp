@@ -44,10 +44,14 @@
 #include <hip/hip_runtime_api.h>
 #include <hip/hip_version.h>
 
+#include <iostream>
+
 #ifdef HIP_HAVE_CUDA_DEFINED
 #define HAVE_CUDA HIP_HAVE_CUDA_DEFINED
 #undef HIP_HAVE_CUDA_DEFINED
 #endif
+
+extern double ctime_welllsD;
 
 #define HIP_CHECK(STAT)                                  \
     do {                                                 \
@@ -160,6 +164,7 @@ void rocsparseSolverBackend<block_size>::gpu_pbicgstab([[maybe_unused]] WellCont
     if(wellContribs.getNumWells() > 0){
         static_cast<WellContributionsRocsparse&>(wellContribs).setStream(stream);
     }
+
 
 // HIP_VERSION is defined as (HIP_VERSION_MAJOR * 10000000 + HIP_VERSION_MINOR * 100000 + HIP_VERSION_PATCH)
 #if HIP_VERSION >= 60000000
@@ -583,6 +588,7 @@ void rocsparseSolverBackend<block_size>::solve_system(WellContributions &wellCon
 
     // actually solve
     gpu_pbicgstab(wellContribs, res);
+    std::cout << "------------ " << "(Well solver) Linear System time: " << ctime_welllsD << "------------ " << std::endl;
 
     if (verbosity >= 3) {
         HIP_CHECK(hipStreamSynchronize(stream));

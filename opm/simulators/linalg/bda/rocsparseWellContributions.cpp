@@ -207,7 +207,6 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         }
         */
     }
-
 }
 
 void WellContributionsRocsparse::apply(double *d_x, double *d_y){
