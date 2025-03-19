@@ -44,10 +44,14 @@
 #include <hip/hip_runtime_api.h>
 #include <hip/hip_version.h>
 
+#include <iostream>
+
 #ifdef HIP_HAVE_CUDA_DEFINED
 #define HAVE_CUDA HIP_HAVE_CUDA_DEFINED
 #undef HIP_HAVE_CUDA_DEFINED
 #endif
+
+extern double ctime_welllsD;
 
 #define HIP_CHECK(STAT)                                  \
     do {                                                 \
@@ -583,7 +587,7 @@ void rocsparseSolverBackend<block_size>::solve_system(WellContributions &wellCon
 
     // actually solve
     gpu_pbicgstab(wellContribs, res);
-
+    std::cout << "------------ " << "(Well solver) Linear System time: " << ctime_welllsD << "------------ " << std::endl;
     if (verbosity >= 3) {
         HIP_CHECK(hipStreamSynchronize(stream));
         std::ostringstream out;
