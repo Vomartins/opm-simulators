@@ -51,8 +51,6 @@
 #undef HIP_HAVE_CUDA_DEFINED
 #endif
 
-extern double ctime_welllsD;
-
 #define HIP_CHECK(STAT)                                  \
     do {                                                 \
         const hipError_t stat = (STAT);                  \
@@ -587,7 +585,6 @@ void rocsparseSolverBackend<block_size>::solve_system(WellContributions &wellCon
 
     // actually solve
     gpu_pbicgstab(wellContribs, res);
-    std::cout << "------------ " << "(Well solver) Linear System time: " << ctime_welllsD << "------------ " << std::endl;
     if (verbosity >= 3) {
         HIP_CHECK(hipStreamSynchronize(stream));
         std::ostringstream out;
