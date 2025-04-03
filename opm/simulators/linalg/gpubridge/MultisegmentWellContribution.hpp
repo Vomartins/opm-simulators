@@ -28,6 +28,10 @@
 
 #include <umfpack.h>
 #include <dune/common/version.hh>
+// Packages for Well Solver on GPU
+#include <hip/hip_runtime_api.h>
+#include <rocblas/rocblas.h>
+#include <rocsolver/rocsolver.h>
 
 namespace Opm
 {
@@ -65,7 +69,21 @@ private:
     std::vector<unsigned int> Brows;
     std::vector<Scalar> z1;          // z1 = B * x
     std::vector<Scalar> z2;          // z2 = D^-1 * B * x
-    void *UMFPACK_Symbolic, *UMFPACK_Numeric;
+
+    // RocSOLVER
+    rocblas_handle handle;
+    double *Dmatrix;
+    rocblas_int Nrhs = 1;
+    rocblas_int *info;
+    rocblas_int *ipiv;
+    double *d_Dmatrix;
+    double *h_Dmatrix;
+    double *d_Cvals;
+    double *d_Bvals;
+    unsigned int *d_Bcols;
+    unsigned int *d_Brows;
+    rocblas_operation operation = rocblas_operation_none;
+    double *d_z;
 
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well
@@ -108,11 +126,33 @@ public:
     /// Destroy a MultisegmentWellContribution, and free memory
     ~MultisegmentWellContribution();
 
+    void alloc();
+    void matricesToDevice();
+    void solveSystem();
+    void parallelBlocksrmvB_x(double* vals,
+                            unsigned int* cols,
+                            unsigned int* rows,
+                            double* x,
+                            double* y,
+                            unsigned int Nbr,
+                            int block_dimM,
+                            int block_dimN);
+    void parallelBlocksrmvC_z(double* vals,
+                            unsigned int* cols,
+                            unsigned int* rows,
+                            double* z,
+                            double* y,
+                            unsigned int Nbr,
+                            int block_dimM,
+                            int block_dimN);
+
+
+
     /// Apply the MultisegmentWellContribution on CPU
     /// performs y -= (C^T * (D^-1 * (B*x))) for MultisegmentWell
     /// \param[in] h_x          vector x, must be on CPU
     /// \param[inout] h_y       vector y, must be on CPU
-    void apply(Scalar* h_x, Scalar* h_y);
+    void apply(double *d_x, double *d_y);
 };
 
 } //namespace Opm

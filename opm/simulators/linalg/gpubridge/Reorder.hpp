@@ -70,6 +70,9 @@ void csrPatternToCsc(const int* CSRColIndices,
                      int* CSCColPointers,
                      int Nb);
 
+double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols);
+
+
 } // namespace Opm::Accelerator
 
 #endif

@@ -161,23 +161,10 @@ template<class Scalar>
 void WellContributionsRocsparse<Scalar>::
 apply_mswells(Scalar* d_x, Scalar* d_y)
 {
-    if (h_x.empty()) {
-        h_x.resize(this->N);
-        h_y.resize(this->N);
-    }
-
-    HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(Scalar) * this->N, hipMemcpyDeviceToHost, stream));
-    HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(Scalar) * this->N, hipMemcpyDeviceToHost, stream));
-    HIP_CHECK(hipStreamSynchronize(stream));
-
     // actually apply MultisegmentWells
     for (auto& well : this->multisegments) {
-        well->apply(h_x.data(), h_y.data());
+        well->apply(d_x, d_y);
     }
-
-    // copy vector y from CPU to GPU
-    HIP_CHECK(hipMemcpyAsync(d_y, h_y.data(), sizeof(Scalar) * this->N, hipMemcpyHostToDevice, stream));
-    HIP_CHECK(hipStreamSynchronize(stream));
 }
 
 template<class Scalar>
