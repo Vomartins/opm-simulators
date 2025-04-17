@@ -129,7 +129,7 @@ public:
     void alloc();
     void matricesToDevice();
     void solveSystem();
-    void parallelBlocksrmvB_x(double* vals,
+    void parallelBlockspmvB_x(double* vals,
                             unsigned int* cols,
                             unsigned int* rows,
                             double* x,
@@ -137,7 +137,7 @@ public:
                             unsigned int Nbr,
                             int block_dimM,
                             int block_dimN);
-    void parallelBlocksrmvC_z(double* vals,
+    void parallelBlockspmvC_z(double* vals,
                             unsigned int* cols,
                             unsigned int* rows,
                             double* z,

@@ -56,7 +56,7 @@
   }
 
 template <class Scalar>
-__global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
+__global__ void parallel_blockspmvB_x_k(const Scalar *vals,
                                         const unsigned int *cols,
                                         const unsigned int *rows,
                                         const Scalar *x,
@@ -97,7 +97,7 @@ __global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
 }
 
 template<class Scalar>
-__global__ void parallel_blocksrmvC_z_k(const Scalar *vals,
+__global__ void parallel_blockspmvC_z_k(const Scalar *vals,
                                         const unsigned int *cols,
                                         const unsigned int *rows,
                                         const Scalar *z,
@@ -166,8 +166,8 @@ MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
     // rocN = M
     // ipivDim = M
 
-    z1.resize(M);
-    z2.resize(M);
+    //z1.resize(M);
+    //z2.resize(M);
 
     Dmatrix = (double*)malloc(sizeof(double)*M*M);
 
@@ -177,6 +177,7 @@ MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
 
     matricesToDevice();
 
+    /**LU factorization */
     ROCSOLVER_CALL(rocsolver_dgetrf(handle, M, M, d_Dmatrix, M, ipiv, info));
 }
 
@@ -195,6 +196,10 @@ MultisegmentWellContribution<Scalar>::~MultisegmentWellContribution()
     HIP_CALL(hipFree(d_z));
 }
 
+/**
+* @brief Memory allocation
+* TODO: may be moved to better location.
+*/
 template<class Scalar>
 void MultisegmentWellContribution<Scalar>::alloc()
 {
@@ -216,6 +221,10 @@ void MultisegmentWellContribution<Scalar>::alloc()
     checkHIPAlloc(d_z);
 }
 
+/**
+* @brief Data transfer from CPU to GPU
+* TODO: may be hidden.
+*/
 template<class Scalar>
 void MultisegmentWellContribution<Scalar>::matricesToDevice()
 {
@@ -224,20 +233,30 @@ void MultisegmentWellContribution<Scalar>::matricesToDevice()
     HIP_CALL(hipMemcpy(d_Bcols, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
 
+    /**Matrix format convertion */
     Opm::Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, M*M*sizeof(double), hipMemcpyHostToDevice));
 }
 
+/**
+* @brief RocSOLVER triangular solver "kernel launch"
+* @brief D * v = z
+*/
 template<class Scalar>
 void MultisegmentWellContribution<Scalar>::solveSystem()
 {
+    /** triangular solver */
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, M, Nrhs, d_Dmatrix, M, ipiv, d_z, M));
 
     HIP_CALL(hipDeviceSynchronize());
 }
 
+/**
+* @brief Hip kernel launch
+* @brief z = B * x
+*/
 template<class Scalar>
-void MultisegmentWellContribution<Scalar>::parallelBlocksrmvB_x(double* vals,
+void MultisegmentWellContribution<Scalar>::parallelBlockspmvB_x(double* vals,
                                                         unsigned int* cols,
                                                         unsigned int* rows,
                                                         double* x,
@@ -246,20 +265,29 @@ void MultisegmentWellContribution<Scalar>::parallelBlocksrmvB_x(double* vals,
                                                         int block_dimM,
                                                         int block_dimN)
 {
+    /**Threads per block */
     int Nthreads = block_dimM;
     int Nblocks = Nbr;
 
+    /**One thread per row */
     dim3 block(Nthreads, 1, 1);
+    /**One grid block per matrix block row */
     dim3 grid(Nblocks, 1, 1);
 
-    parallel_blocksrmvB_x_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
+    parallel_blockspmvB_x_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
 
-    HIP_CALL(hipGetLastError()); // Check for errors
+    /**Check for errors */
+    HIP_CALL(hipGetLastError());
+    /**Synchronize after kernel execution */
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
+/**
+* @brief Hip kernel launch
+* @brief y = y - C^T * v
+*/
 template<class Scalar>
-void MultisegmentWellContribution<Scalar>::parallelBlocksrmvC_z(double* vals,
+void MultisegmentWellContribution<Scalar>::parallelBlockspmvC_z(double* vals,
                                                         unsigned int* cols,
                                                         unsigned int* rows,
                                                         double* z,
@@ -268,20 +296,27 @@ void MultisegmentWellContribution<Scalar>::parallelBlocksrmvC_z(double* vals,
                                                         int block_dimM,
                                                         int block_dimN)
 {
-    int Nthreads = block_dimM; // Threads per block
+    /**Threads per block */
+    int Nthreads = block_dimM;
     int Nblocks = Nbr;
-    dim3 block(Nthreads, 1 ,1);                      // One thread block per block column
-    dim3 grid(Nblocks, 1, 1);                        // One grid block per matrix block column
 
-    parallel_blocksrmvC_z_k<<<grid, block>>>(vals, cols, rows, z, y, block_dimM, block_dimN);
+    /**One thread per column */
+    dim3 block(Nthreads, 1 ,1);
+    /**One grid block per matrix block column */
+    dim3 grid(Nblocks, 1, 1);
 
-    HIP_CALL(hipGetLastError());      // Check for errors
+    parallel_blockspmvC_z_k<<<grid, block>>>(vals, cols, rows, z, y, block_dimM, block_dimN);
+
+    /**Check for errors */
+    HIP_CALL(hipGetLastError());
+    /**Synchronize after kernel execution */
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
-// Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
-// h_x and h_y reside on host
-// y -= (C^T * (D^-1 * (B * x)))
+/**
+* @brief Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
+* @brief y -= (C^T * (D^-1 * (B * x)))
+*/
 template<class Scalar>
 void MultisegmentWellContribution<Scalar>::apply(double *d_x, double *d_y)
 {
@@ -289,9 +324,13 @@ void MultisegmentWellContribution<Scalar>::apply(double *d_x, double *d_y)
 
     HIP_CALL(hipMemset(d_z, 0.0, M*Nrhs*sizeof(double)));
 
-    parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    /** z = B * x */
+    parallelBlockspmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    /** D * v = z */
+    /** z <- v */
     solveSystem();
-    parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    /** y = y - C^T * v */
+    parallelBlockspmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
 }
 
 #if HAVE_CUDA
