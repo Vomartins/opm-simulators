@@ -140,11 +140,11 @@ public:
     /// \param[inout] d_y       vector y, must be on GPU
     void apply(double *d_x, double *d_y);
 
-    void alloc();
+    void rocSOLVERAlloc();
 
     void matricesToDevice();
 
-    void free();
+    void rocSOLVERFree();
 
     void solveSystem();
 

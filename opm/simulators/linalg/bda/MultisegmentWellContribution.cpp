@@ -334,13 +334,15 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     ldb = Mb*dim_wells;
     ipivDim = rocM > rocN ? rocN : rocM;
 
+    //std::cout << "=== === === rocM: " << rocM << " ldb: " << ldb << " === === === " << std::endl;
+
     Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
 
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
     Dune::Timer alloc_timer;
     alloc_timer.start();
-    alloc();
+    rocSOLVERAlloc();
     alloc_timer.stop();
     ctime_alloc += alloc_timer.lastElapsed();
 
@@ -364,10 +366,10 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
 
     ROCSOLVER_CALL(rocblas_destroy_handle(handle));
 
-    free();
+    rocSOLVERFree();
 }
 
-void MultisegmentWellContribution::alloc()
+void MultisegmentWellContribution::rocSOLVERAlloc()
 {
     HIP_CALL(hipMalloc(&d_Dmatrix, sizeof(double)*rocM*rocN));
     checkHIPAlloc(d_Dmatrix);
@@ -401,7 +403,7 @@ void MultisegmentWellContribution::matricesToDevice()
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
 }
 
-void MultisegmentWellContribution::free()
+void MultisegmentWellContribution::rocSOLVERFree()
 {
     HIP_CALL(hipFree(d_Dmatrix));
     HIP_CALL(hipFree(d_Cvals));
