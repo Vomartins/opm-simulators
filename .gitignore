@@ -42,3 +42,6 @@ build/
 
 # Cache files
 .cache/*
+
+# Text files
+*.txt

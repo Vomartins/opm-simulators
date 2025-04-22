@@ -74,8 +74,6 @@ private:
     std::vector<unsigned int> Bcols;
     std::vector<int> Drows;              // Rowindicies, contains DnumBlocks*dim*dim_wells entries
     std::vector<unsigned int> Brows;
-    std::vector<double> z1;          // z1 = B * x
-    std::vector<double> z2;          // z2 = D^-1 * B * x
 
     // RocSOLVER
     rocblas_int rocM;
@@ -88,7 +86,6 @@ private:
     int ipivDim;
     double *Dmatrix;
     double *d_Dmatrix;
-    double *h_Dmatrix;
     double *d_Cvals;
     double *d_Bvals;
     unsigned int *d_Bcols;
@@ -96,7 +93,7 @@ private:
     void *d_buffer;
     rocblas_handle handle;
     rocblas_operation operation = rocblas_operation_none;
-    double *d_z;
+    double *d_z; // d_z = d_B * d_x
     double *d_rhs;
 
     double *d_x_elem;         // Auxiliary array to multiply Bw*xr in a contiguous memory access
@@ -143,28 +140,13 @@ public:
     /// \param[inout] d_y       vector y, must be on GPU
     void apply(double *d_x, double *d_y);
 
-    void allocInit();
-
-    void allocCall();
+    void alloc();
 
     void matricesToDevice();
 
-    void freeInit();
-
-    void freeCall();
+    void free();
 
     void solveSystem();
-
-    void blocksrmvBx(double* vals, unsigned int* cols, unsigned int* rows, double* x, double* out, unsigned int Nbr, unsigned int block_dimM, unsigned int block_dimN, const double op_sign);
-
-    void serialBlocksrmvB_x(double* vals,
-                            unsigned int* cols,
-                            unsigned int* rows,
-                            double* x,
-                            double* y,
-                            unsigned int Nbr,
-                            int block_dimM,
-                            int block_dimN);
 
     void parallelBlocksrmvB_x(double* vals,
                               unsigned int* cols,
@@ -175,7 +157,7 @@ public:
                               int block_dimM,
                               int block_dimN);
 
-    void parallelV2BlocksrmvB_x(double* vals,
+    void parallelV1BlocksrmvB_x(double* vals,
                                 unsigned int* cols,
                                 unsigned int* rows,
                                 double* x,
@@ -184,7 +166,7 @@ public:
                                 int block_dimM,
                                 int block_dimN);
 
-    void parallelV3BlocksrmvB_x(double* vals,
+    void parallelV2BlocksrmvB_x(double* vals,
                               unsigned int* cols,
                               unsigned int* rows,
                               double* x,
@@ -193,15 +175,6 @@ public:
                               unsigned int Nbr,
                               int block_dimM,
                               int block_dimN);
-
-    void serialBlocksrmvC_z(double* vals,
-                            unsigned int* cols,
-                            unsigned int* rows,
-                            double* z,
-                            double* y,
-                            unsigned int Nbr,
-                            int block_dimM,
-                            int block_dimN);
 
     void parallelBlocksrmvC_z(double* vals,
                               unsigned int* cols,
@@ -212,7 +185,7 @@ public:
                               int block_dimM,
                               int block_dimN);
 
-    void parallelV2BlocksrmvC_z(double* vals,
+    void parallelV1BlocksrmvC_z(double* vals,
                                 unsigned int* cols,
                                 unsigned int* rows,
                                 double* z,
