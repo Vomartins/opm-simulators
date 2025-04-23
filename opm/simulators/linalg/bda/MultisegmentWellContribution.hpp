@@ -75,21 +75,31 @@ private:
     std::vector<int> Drows;              // Rowindicies, contains DnumBlocks*dim*dim_wells entries
     std::vector<unsigned int> Brows;
 
+    unsigned int Nnz;
+
     // RocSOLVER
     rocblas_int rocM;
     rocblas_int rocN;
     rocblas_int Nrhs = 1;
     rocblas_int lda;
     rocblas_int ldb;
-    rocblas_int *info;
     rocblas_int *ipiv;
     int ipivDim;
-    double *Dmatrix;
-    double *d_Dmatrix;
-    double *d_Cvals;
-    double *d_Bvals;
-    unsigned int *d_Bcols;
-    unsigned int *d_Brows;
+    rocsolver_rfinfo *rfinfo;
+    double *Dmatrix; // array for full matrix storage
+    double *d_Dmatrix; // GPU array of full matrix
+    double *d_Dvals; // GPU array of nonzero values of D matrix
+    double *d_Tvals; // GPU array of nonzero values of T matrix
+    double *d_Cvals; // GPU array of nonzero values of C matrix
+    double *d_Bvals; // GPU array of nonzero values of B matrix
+    rocblas_int *d_Dcols; // GPU array of column index
+    rocblas_int *d_Tcols; // GPU array of column index
+    unsigned int *d_Bcols; // GPU array of column index
+    rocblas_int *d_Drows; // GPU array of row pointer
+    rocblas_int *d_Trows; // GPU array of row pointer
+    unsigned int *d_Brows; // GPU array of row pointer
+    rocblas_int *d_pivP; // pivot indices of permutation matrix P
+    rocblas_int *d_pivQ; // pivot indices of permutation matrix Q
     void *d_buffer;
     rocblas_handle handle;
     rocblas_operation operation = rocblas_operation_none;

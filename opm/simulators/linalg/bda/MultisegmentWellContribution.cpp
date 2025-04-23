@@ -334,6 +334,10 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     ldb = Mb*dim_wells;
     ipivDim = rocM > rocN ? rocN : rocM;
 
+    Nnz = DnumBlocks * dim_wells * dim_wells;
+
+    //std::cout << "=== === === rocM: " << rocM << " ldb: " << ldb << " === === === " << std::endl;
+
     Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
 
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
@@ -352,8 +356,20 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
     Dune::Timer LU_timer;
     LU_timer.start();
-    // LU factorization
-    ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix, lda, ipiv, info));
+
+    ROCSOLVER_CALL(rocsolver_create_rfinfo(&rfinfo, &handle))
+
+    /*
+    Analysis required by re-factorizations funtion and direct solve
+    */
+    ROCSOLVER_CALL(rocsolver_dcsrrf_analysis(handle, M, Nrhs, Nnz, d_Drows, d_Dcols, d_Dvals,
+        Nnz, d_Trows, d_Tcols, d_Tvals, nullptr, nullptr, nullptr, ldb, rfinfo));
+
+    /*
+    Numerical factorization
+    */
+    ROCSOLVER_CALL(rocsolver_dcsrrf_refaclu(handle, M, Nnz,  d_Drows, d_Dcols, d_Dvals,
+        Nnz, d_Trows, d_Tcols, d_Tvals, d_pivP, d_pivQ, rfinfo));
     LU_timer.stop();
     ctime_wellLU += LU_timer.lastElapsed();
 }
@@ -363,6 +379,7 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     free(Dmatrix);
 
     ROCSOLVER_CALL(rocblas_destroy_handle(handle));
+    ROCSOLVER_CALL(rocsolver_destroy_rfinfo(rfinfo));
 
     free();
 }
@@ -371,14 +388,30 @@ void MultisegmentWellContribution::alloc()
 {
     HIP_CALL(hipMalloc(&d_Dmatrix, sizeof(double)*rocM*rocN));
     checkHIPAlloc(d_Dmatrix);
+    HIP_CALL(hipMalloc(&d_Dvals, sizeof(double)*Nnz));
+    checkHIPAlloc(d_Dvals);
+    HIP_CALL(hipMalloc(&d_Tvals, sizeof(double)*Nnz));
+    checkHIPAlloc(d_Tvals);
     HIP_CALL(hipMalloc(&d_Cvals, sizeof(double)*size(Cvals)));
     checkHIPAlloc(d_Cvals);
     HIP_CALL(hipMalloc(&d_Bvals, sizeof(double)*size(Bvals)));
     checkHIPAlloc(d_Bvals);
+    HIP_CALL(hipMalloc(&d_Dcols, sizeof(rocblas_int)*(M + 1)));
+    checkHIPAlloc(d_Dcols);
+    HIP_CALL(hipMalloc(&d_Tcols, sizeof(rocblas_int)*(M + 1)));
+    checkHIPAlloc(d_Tcols);
     HIP_CALL(hipMalloc(&d_Bcols, sizeof(unsigned int)*size(Bcols)));
     checkHIPAlloc(d_Bcols);
+    HIP_CALL(hipMalloc(&d_Drows, sizeof(rocblas_int)*Nnz));
+    checkHIPAlloc(d_Drows);
+    HIP_CALL(hipMalloc(&d_Trows, sizeof(rocblas_int)*Nnz));
+    checkHIPAlloc(d_Trows);
     HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows)));
     checkHIPAlloc(d_Brows);
+    HIP_CALL(hipMalloc(&d_pivP, sizeof(rocblas_int) * M));
+    checkHIPAlloc(d_pivP);
+    HIP_CALL(hipMalloc(&d_pivQ, sizeof(rocblas_int) * M));
+    checkHIPAlloc(d_pivQ);
     HIP_CALL(hipMalloc(&d_x_elem, sizeof(double)*dim*size(Bcols)));
     checkHIPAlloc(d_x_elem);
 
@@ -398,7 +431,9 @@ void MultisegmentWellContribution::matricesToDevice()
     HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
 
     Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Dvals, Dvals, Nnz *sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Dcols, Dcols, (M + 1)*sizeof(rocblas_int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Drows, Drows, Nnz *sizeof(rocblas_int), hipMemcpyHostToDevice));
 }
 
 void MultisegmentWellContribution::free()
@@ -417,7 +452,7 @@ void MultisegmentWellContribution::free()
 
 void MultisegmentWellContribution::solveSystem()
 {
-    ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
+    ROCSOLVER_CALL(rocsolver_dcsrrf_solve(handle, M, Nrhs, Nnz, d_Trows, d_Tcols, d_Tvals, d_pivP, d_pivQ, d_z, ldb, rfinfo));
 
     HIP_CALL(hipDeviceSynchronize());
 }
