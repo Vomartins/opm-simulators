@@ -338,7 +338,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
     //std::cout << "=== === === rocM: " << rocM << " ldb: " << ldb << " === === === " << std::endl;
 
-    Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
+    //Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
 
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
@@ -357,18 +357,18 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     Dune::Timer LU_timer;
     LU_timer.start();
 
-    ROCSOLVER_CALL(rocsolver_create_rfinfo(&rfinfo, &handle))
+    ROCSOLVER_CALL(rocsolver_create_rfinfo(&rfinfo, handle));
 
     /*
     Analysis required by re-factorizations funtion and direct solve
     */
     ROCSOLVER_CALL(rocsolver_dcsrrf_analysis(handle, M, Nrhs, Nnz, d_Drows, d_Dcols, d_Dvals,
-        Nnz, d_Trows, d_Tcols, d_Tvals, nullptr, nullptr, nullptr, ldb, rfinfo));
+        Nnz, d_Trows, d_Tcols, d_Tvals, d_pivP, d_pivQ, d_z, ldb, rfinfo));
 
     /*
     Numerical factorization
     */
-    ROCSOLVER_CALL(rocsolver_dcsrrf_refaclu(handle, M, Nnz,  d_Drows, d_Dcols, d_Dvals,
+    ROCSOLVER_CALL(rocsolver_dcsrrf_refactlu(handle, M, Nnz,  d_Drows, d_Dcols, d_Dvals,
         Nnz, d_Trows, d_Tcols, d_Tvals, d_pivP, d_pivQ, rfinfo));
     LU_timer.stop();
     ctime_wellLU += LU_timer.lastElapsed();
@@ -376,7 +376,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
 MultisegmentWellContribution::~MultisegmentWellContribution()
 {
-    free(Dmatrix);
+    //free(Dmatrix);
 
     ROCSOLVER_CALL(rocblas_destroy_handle(handle));
     ROCSOLVER_CALL(rocsolver_destroy_rfinfo(rfinfo));
@@ -396,13 +396,13 @@ void MultisegmentWellContribution::alloc()
     checkHIPAlloc(d_Cvals);
     HIP_CALL(hipMalloc(&d_Bvals, sizeof(double)*size(Bvals)));
     checkHIPAlloc(d_Bvals);
-    HIP_CALL(hipMalloc(&d_Dcols, sizeof(rocblas_int)*(M + 1)));
+    HIP_CALL(hipMalloc(&d_Dcols, sizeof(rocblas_int)*Nnz));
     checkHIPAlloc(d_Dcols);
     HIP_CALL(hipMalloc(&d_Tcols, sizeof(rocblas_int)*(M + 1)));
     checkHIPAlloc(d_Tcols);
     HIP_CALL(hipMalloc(&d_Bcols, sizeof(unsigned int)*size(Bcols)));
     checkHIPAlloc(d_Bcols);
-    HIP_CALL(hipMalloc(&d_Drows, sizeof(rocblas_int)*Nnz));
+    HIP_CALL(hipMalloc(&d_Drows, sizeof(rocblas_int)*(M + 1)));
     checkHIPAlloc(d_Drows);
     HIP_CALL(hipMalloc(&d_Trows, sizeof(rocblas_int)*Nnz));
     checkHIPAlloc(d_Trows);
@@ -414,11 +414,10 @@ void MultisegmentWellContribution::alloc()
     checkHIPAlloc(d_pivQ);
     HIP_CALL(hipMalloc(&d_x_elem, sizeof(double)*dim*size(Bcols)));
     checkHIPAlloc(d_x_elem);
-
     HIP_CALL(hipMalloc(&ipiv, sizeof(rocblas_int)*ipivDim));
     checkHIPAlloc(ipiv);
-    HIP_CALL(hipMalloc(&info, sizeof(rocblas_int)));
-    checkHIPAlloc(info);
+    HIP_CALL(hipMalloc(&rfinfo, sizeof(rocsolver_rfinfo)));
+    checkHIPAlloc(rfinfo);
     HIP_CALL(hipMalloc(&d_z, sizeof(double)*ldb*Nrhs));
     checkHIPAlloc(d_z);
 }
@@ -430,10 +429,10 @@ void MultisegmentWellContribution::matricesToDevice()
     HIP_CALL(hipMemcpy(d_Bcols, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
 
-    Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
-    HIP_CALL(hipMemcpy(d_Dvals, Dvals, Nnz *sizeof(double), hipMemcpyHostToDevice));
-    HIP_CALL(hipMemcpy(d_Dcols, Dcols, (M + 1)*sizeof(rocblas_int), hipMemcpyHostToDevice));
-    HIP_CALL(hipMemcpy(d_Drows, Drows, Nnz *sizeof(rocblas_int), hipMemcpyHostToDevice));
+    Accelerator::convertCCStoCRS(Dvals, Drows, Dcols, M, M);
+    HIP_CALL(hipMemcpy(d_Dvals, Dvals.data(), Nnz * sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Dcols, Dcols.data(), Nnz * sizeof(rocblas_int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Drows, Drows.data(), (M + 1) * sizeof(rocblas_int), hipMemcpyHostToDevice));
 }
 
 void MultisegmentWellContribution::free()
@@ -445,7 +444,7 @@ void MultisegmentWellContribution::free()
     HIP_CALL(hipFree(d_Brows));
 
     HIP_CALL(hipFree(ipiv));
-    HIP_CALL(hipFree(info));
+    HIP_CALL(hipFree(rfinfo));
     HIP_CALL(hipFree(d_z));
 
 }

@@ -85,7 +85,7 @@ private:
     rocblas_int ldb;
     rocblas_int *ipiv;
     int ipivDim;
-    rocsolver_rfinfo *rfinfo;
+    rocsolver_rfinfo rfinfo;
     double *Dmatrix; // array for full matrix storage
     double *d_Dmatrix; // GPU array of full matrix
     double *d_Dvals; // GPU array of nonzero values of D matrix

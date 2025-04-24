@@ -23,9 +23,7 @@
 
 #include <opm/simulators/linalg/bda/Reorder.hpp>
 
-#include <vector>
-#include <cassert>
-
+#include <algorithm>
 
 namespace Opm
 {
@@ -152,7 +150,7 @@ void csrPatternToCsc(int *CSRColIndices, int *CSRRowPointers, int *CSCRowIndices
     }
 }
 
-double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
+void squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
 {
     int lda = size(Dcols)-1;
     int nnzs = size(Dvals);
@@ -172,8 +170,44 @@ double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vecto
     for(int i=0; i<nnzs; i++){
         Dmatrix[Drows[i]+Cols[i]*lda] = Dvals[i];
     }
+}
 
-    return Dmatrix;
+void convertCCStoCRS(std::vector<double>& Dvals, std::vector<int>& Drows, std::vector<int>& Dcols,
+    unsigned  int numRows, unsigned int numCols)
+{
+    // Step 1: Count non-zeros per row
+        std::vector<int> rowCounts(numRows, 0);
+        for (unsigned int col = 0; col < numCols; ++col) {
+            for (int idx = Dcols[col]; idx < Dcols[col + 1]; ++idx) {
+                int row = Drows[idx];
+                rowCounts[row]++;
+            }
+        }
+
+        // Step 2: Compute CRS row pointer
+        std::vector<int> newRowPtr(numRows + 1, 0);
+        for (unsigned int i = 0; i < numRows; ++i) {
+            newRowPtr[i + 1] = newRowPtr[i] + rowCounts[i];
+        }
+
+        // Step 3: Allocate CRS vals and col indices
+        std::vector<double> newVals(Dvals.size());
+        std::vector<int> newColIdx(Dvals.size());
+        std::vector<int> rowOffset = newRowPtr;  // to keep track of insert positions
+
+        for (unsigned int col = 0; col < numCols; ++col) {
+            for (int idx = Dcols[col]; idx < Dcols[col + 1]; ++idx) {
+                int row = Drows[idx];
+                int destPos = rowOffset[row]++;
+                newVals[destPos] = Dvals[idx];
+                newColIdx[destPos] = col;
+            }
+        }
+
+        // Replace original vectors
+        Dvals = std::move(newVals);
+        Dcols = std::move(newColIdx);
+        Drows = std::move(newRowPtr);
 }
 
 } // namespace Accelerator

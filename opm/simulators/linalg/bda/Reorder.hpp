@@ -21,6 +21,7 @@
 #define REORDER_HPP
 
 #include <vector>
+#include <cassert>
 
 namespace Opm
 {
@@ -58,7 +59,10 @@ void findLevelScheduling(int *CSRColIndices, int *CSRRowPointers, int *CSCRowInd
 /// \param[in] Nb                number of blockrows in the matrix
 void csrPatternToCsc(int *CSRColIndices, int *CSRRowPointers, int *CSCRowIndices, int *CSCColPointers, int Nb);
 
-double* squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols);
+void squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols);
+
+void convertCCStoCRS(std::vector<double>& Dvals, std::vector<int>& Drows, std::vector<int>& Dcols,
+    unsigned  int numRows, unsigned int numCols);
 
 } // namespace Accelerator
 } // namespace Opm
