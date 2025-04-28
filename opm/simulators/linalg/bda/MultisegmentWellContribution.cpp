@@ -102,16 +102,15 @@ __global__ void parallel_blocksrmvB_x_k(const Scalar *vals,
                 Scalar B_elem = vals[Bidx];
                 unsigned int xidx = cols[block] * bsN + c;
 
-                Scalar x_elem = x[xidx];
+                Scalar aux_x = x[xidx];
 
                 // Perform the multiplication
-                local_sum += B_elem * x_elem;
+                local_sum += B_elem * aux_x;
             }
         }
 
         // Write the result back to global memory
         y[yidx] = local_sum;
-        //}
 }
 
 template <class Scalar>
@@ -144,8 +143,8 @@ __global__ void parallel_V1blocksrmvB_x_k(const Scalar *vals,
             unsigned int Bidx = block * bsM * bsN + waveRow * bsN + threadRow;
             Scalar B_elem = vals[Bidx];
             unsigned int xidx = cols[block] * bsN + threadRow;
-            Scalar x_elem = x[xidx];
-            local_sum += B_elem * x_elem;
+            Scalar aux_x = x[xidx];
+            local_sum += B_elem * aux_x;
         }
 
         // Store the result in shared memory
@@ -168,9 +167,9 @@ __global__ void parallel_V1blocksrmvB_x_k(const Scalar *vals,
 }
 
 template <class Scalar>
-__global__ void reduction_operator(const unsigned int *cols,
+__global__ void contiguous_operator(const unsigned int *cols,
                                         const unsigned int *rows,
-                                        Scalar *x_elem,
+                                        Scalar *aux_x,
                                         const Scalar *x,
                                         const int block_dimN)
 {
@@ -183,8 +182,7 @@ __global__ void reduction_operator(const unsigned int *cols,
     for (unsigned int block = first_block; block < last_block; block++) {
         for (unsigned int c = 0; c < bsN; c++) {
             unsigned int xidx = cols[block] * bsN + c;
-
-            x_elem[block*bsN+c] = x[xidx];
+            aux_x[block*bsN+c] = x[xidx];
         }
     }
 }
@@ -192,7 +190,7 @@ __global__ void reduction_operator(const unsigned int *cols,
 template <class Scalar>
 __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
                                         const unsigned int *rows,
-                                        const Scalar *x_elem,
+                                        const Scalar *aux_x,
                                         Scalar *y,
                                         const int block_dimM,
                                         const int block_dimN)
@@ -200,8 +198,9 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
     const unsigned int bsM = block_dimM;
     const unsigned int bsN = block_dimN;
 
-    const unsigned int blockRow = blockIdx.x;  // Each GPU block handles one block row
-    const unsigned int threadRow = threadIdx.x;  // Each thread handles one row of the block
+    const unsigned int blockRow = blockIdx.x;  // Each block handles one block row of C
+    const unsigned int threadRow = threadIdx.x;  // Thread's row index within block (r)
+    // TODO: Add waveRow -> Thread's column index within block (c)
     const unsigned int first_block = rows[blockRow];
     const unsigned int last_block = rows[blockRow + 1];
 
@@ -218,7 +217,7 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
                 unsigned int xidx = block*bsN+c;
 
                 // Perform the multiplication
-                local_sum += B_elem * x_elem[xidx];
+                local_sum += B_elem * aux_x[xidx];
             }
         }
 
@@ -304,6 +303,8 @@ __global__ void parallel_V1blocksrmvC_z_k(const Scalar *vals,
     }
 }
 
+// TODO: Create parallel_V2blocksrmvC_z_k with contiguous operator
+
 namespace Opm
 {
 
@@ -381,8 +382,8 @@ void MultisegmentWellContribution::rocSOLVERAlloc()
     checkHIPAlloc(d_Bcols);
     HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows)));
     checkHIPAlloc(d_Brows);
-    HIP_CALL(hipMalloc(&d_x_elem, sizeof(double)*dim*size(Bcols)));
-    checkHIPAlloc(d_x_elem);
+    HIP_CALL(hipMalloc(&d_aux_x, sizeof(double)*dim*size(Bcols)));
+    checkHIPAlloc(d_aux_x);
 
     HIP_CALL(hipMalloc(&ipiv, sizeof(rocblas_int)*ipivDim));
     checkHIPAlloc(ipiv);
@@ -410,6 +411,7 @@ void MultisegmentWellContribution::rocSOLVERFree()
     HIP_CALL(hipFree(d_Bvals));
     HIP_CALL(hipFree(d_Bcols));
     HIP_CALL(hipFree(d_Brows));
+    HIP_CALL(hipFree(d_aux_x));
 
     HIP_CALL(hipFree(ipiv));
     HIP_CALL(hipFree(info));
@@ -470,7 +472,7 @@ void MultisegmentWellContribution::parallelV2BlocksrmvB_x(double* vals,
                                                         unsigned int* cols,
                                                         unsigned int* rows,
                                                         double* x,
-                                                        double* x_elem,
+                                                        double* aux_x,
                                                         double* y,
                                                         unsigned int Nbr,
                                                         int block_dimM,
@@ -482,9 +484,9 @@ void MultisegmentWellContribution::parallelV2BlocksrmvB_x(double* vals,
     dim3 block(Nthreads, 1, 1);
     dim3 grid(Nblocks, 1, 1);
 
-    reduction_operator<<<grid, block>>>(cols, rows, x_elem, x, block_dimN);
+    contiguous_operator<<<grid, block>>>(cols, rows, aux_x, x, block_dimN);
 
-    parallel_V2blocksrmvB_x_k<<<grid, block>>>(vals, rows, x_elem, y, block_dimM, block_dimN);
+    parallel_V2blocksrmvB_x_k<<<grid, block>>>(vals, rows, aux_x, y, block_dimM, block_dimN);
 
     HIP_CALL(hipGetLastError()); // Check for errors
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
@@ -532,9 +534,10 @@ void MultisegmentWellContribution::parallelV1BlocksrmvC_z(double* vals,
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
-// Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
-// h_x and h_y reside on host
-// y -= (C^T * (D^-1 * (B * x)))
+/**
+* @brief Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
+* @brief y -= (C^T * (D^-1 * (B * x)))
+*/
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
     OPM_TIMEBLOCK(apply);
@@ -546,9 +549,9 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     /**
     * d_z = d_B * d_x
     */
-    parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     //parallelV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    //parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_x_elem, d_z, size(Brows) - 1, dim_wells, dim);
+    parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
     contribsCalc_timer.stop();
     ctime_wellBx += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
@@ -556,7 +559,9 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     * d_D * d_z = d_v
     * d_z <- d_v
     */
-    solveSystem();
+    ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
+
+    HIP_CALL(hipDeviceSynchronize());
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();

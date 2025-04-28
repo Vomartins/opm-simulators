@@ -96,7 +96,7 @@ private:
     double *d_z; // d_z = d_B * d_x
     double *d_rhs;
 
-    double *d_x_elem;         // Auxiliary array to multiply Bw*xr in a contiguous memory access
+    double *d_aux_x;         // Auxiliary array to multiply Bw*xr with a contiguous memory access
 
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well
@@ -170,7 +170,7 @@ public:
                               unsigned int* cols,
                               unsigned int* rows,
                               double* x,
-                              double* x_elem,
+                              double* aux_x,
                               double* y,
                               unsigned int Nbr,
                               int block_dimM,
