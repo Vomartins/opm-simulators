@@ -547,11 +547,11 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     Dune::Timer contribsCalc_timer;
     contribsCalc_timer.start();
     /**
-    * d_z = d_B * d_x
+    * d_v = d_B * d_x
     */
-    //parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     //parallelV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
     contribsCalc_timer.stop();
     ctime_wellBx += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
