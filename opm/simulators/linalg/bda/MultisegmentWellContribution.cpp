@@ -200,10 +200,9 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
 
     const unsigned int blockRow = blockIdx.x;  // Each block handles one block row of C
     const unsigned int threadRow = threadIdx.x;  // Thread's row index within block (r)
-    // TODO: Add waveRow -> Thread's column index within block (c)
+    //const unsigned int waveRow = threadIdx.y; // Thread's column index within block (c)
     const unsigned int first_block = rows[blockRow];
     const unsigned int last_block = rows[blockRow + 1];
-
 
     // Q: When threadRow is >= bsM?
     //if (threadRow < bsM) {
@@ -211,10 +210,10 @@ __global__ void parallel_V2blocksrmvB_x_k(const Scalar *vals,
         Scalar local_sum = 0.0;
 
         for (unsigned int block = first_block; block < last_block; block++) {
-            for (unsigned int c = 0; c < bsN; c++) {
+            for (unsigned int c = 0; c < bsN; c++){
                 unsigned int Bidx = block * bsM * bsN + threadRow * bsN + c;
                 Scalar B_elem = vals[Bidx];
-                unsigned int xidx = block*bsN+c;
+                unsigned int xidx = block*bsN + c;
 
                 // Perform the multiplication
                 local_sum += B_elem * aux_x[xidx];
@@ -549,9 +548,9 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     /**
     * d_v = d_B * d_x
     */
-    parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
+    //parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     //parallelV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    //parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
+    parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
     contribsCalc_timer.stop();
     ctime_wellBx += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
