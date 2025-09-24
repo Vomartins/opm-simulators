@@ -33,6 +33,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include <chrono>
 #include <iomanip>
@@ -70,6 +71,19 @@ void checkHIPAlloc(void* ptr) {
     if (ptr == nullptr) {
         std::cerr << "HIP malloc failed." << std::endl;
         exit(1);
+    }
+}
+
+template <class Scalar>
+void saveVector(std::vector<Scalar> vec, std::string filename){
+    std::ofstream output_file(filename);
+    if (output_file.is_open()) {
+        for (const auto& num : vec) {
+            output_file << num << " ";
+        }
+        output_file.close();
+    } else {
+        std::cerr << "Error opening file." << std::endl;
     }
 }
 
@@ -337,6 +351,10 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     //std::cout << "=== === === rocM: " << rocM << " ldb: " << ldb << " === === === " << std::endl;
 
     Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
+    saveVector(Dvals, "Dvals.txt");
+    saveVector(Dcols, "Dcpls.txt");
+    saveVector(Drows, "Drows.txt");
+    std::exit(0);
 
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
