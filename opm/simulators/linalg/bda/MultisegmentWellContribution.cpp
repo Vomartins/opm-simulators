@@ -351,10 +351,11 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     //std::cout << "=== === === rocM: " << rocM << " ldb: " << ldb << " === === === " << std::endl;
 
     Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
-    saveVector(Dvals, "Dvals.txt");
-    saveVector(Dcols, "Dcpls.txt");
-    saveVector(Drows, "Drows.txt");
-    std::exit(0);
+
+    // saveVector(Bvals, "Bvals.txt");
+    // saveVector(Bcols, "Bcols.txt");
+    // saveVector(Brows, "Brows.txt");
+    // std::exit(0);
 
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
 
