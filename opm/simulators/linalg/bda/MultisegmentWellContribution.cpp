@@ -352,7 +352,7 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
 
     Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
 
-    // saveVector(Bvals, "Bvals.txt");
+    // saveVector(Cvals, "Cvals.txt");
     // saveVector(Bcols, "Bcols.txt");
     // saveVector(Brows, "Brows.txt");
     // std::exit(0);
