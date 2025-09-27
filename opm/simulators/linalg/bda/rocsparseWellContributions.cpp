@@ -43,6 +43,9 @@
 
 #include <hip/hip_runtime.h>
 
+#include <fstream>
+#include <iostream>
+
 #define HIP_CHECK(stat)                               \
     {                                                 \
         if(stat != hipSuccess)                        \
@@ -50,6 +53,19 @@
             OPM_THROW(std::logic_error, "HIP error"); \
         }                                             \
     }
+
+template <class Scalar>
+void saveVector(std::vector<Scalar> vec, std::string filename){
+    std::ofstream output_file(filename);
+    if (output_file.is_open()) {
+        for (const auto& num : vec) {
+            output_file << num << " ";
+        }
+        output_file.close();
+    } else {
+        std::cerr << "Error opening file." << std::endl;
+    }
+}
 
 namespace Opm
 {
