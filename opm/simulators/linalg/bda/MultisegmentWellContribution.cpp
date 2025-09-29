@@ -26,6 +26,19 @@
 
 #include <opm/simulators/linalg/bda/MultisegmentWellContribution.hpp>
 
+template <class Scalar>
+void saveVector(std::vector<Scalar> vec, std::string filename){
+    std::ofstream output_file(filename);
+    if (output_file.is_open()) {
+        for (const auto& num : vec) {
+            output_file << num << " ";
+        }
+        output_file.close();
+    } else {
+        std::cerr << "Error opening file." << std::endl;
+    }
+}
+
 namespace Opm
 {
 
@@ -74,6 +87,15 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
     std::fill(z1.begin(), z1.end(), 0.0);
     std::fill(z2.begin(), z2.end(), 0.0);
 
+    // saveVector(Bvals, "Bvals.txt");
+    // saveVector(Cvals, "Cvals.txt");
+    // saveVector(Bcols, "Bcols.txt");
+    // saveVector(Brows, "Brows.txt");
+    // saveVector(Dvals, "Dvals.txt");
+    // saveVector(Dcols, "Dcols.txt");
+    // saveVector(Drows, "Drows.txt");
+    // exit(1);
+
     // z1 = B * x
     for (unsigned int row = 0; row < Mb; ++row) {
         // for every block in the row
@@ -118,4 +140,3 @@ void MultisegmentWellContribution::setCudaStream(cudaStream_t stream_)
 #endif
 
 } //namespace Opm
-

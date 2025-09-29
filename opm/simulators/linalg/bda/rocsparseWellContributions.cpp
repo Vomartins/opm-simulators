@@ -182,6 +182,9 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
     HIP_CHECK(hipStreamSynchronize(stream));
 
+    // saveVector(h_x, "vecx.txt");
+    // saveVector(h_y, "vecy.txt");
+
     // actually apply MultisegmentWells
     for (auto& well : multisegments) {
         well->apply(h_x.data(), h_y.data());
