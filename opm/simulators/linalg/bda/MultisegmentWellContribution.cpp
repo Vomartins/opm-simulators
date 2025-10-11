@@ -558,6 +558,15 @@ void MultisegmentWellContribution::parallelV1BlocksrmvC_z(double* vals,
 */
 void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 {
+    // saveVector(Cvals, "Cvals.txt");
+    // saveVector(Bvals, "Bvals.txt");
+    // saveVector(Bcols, "Bcols.txt");
+    // saveVector(Brows, "Brows.txt");
+    // saveVector(Dvals, "Dvals.txt");
+    // saveVector(Dcols, "Dcols.txt");
+    // saveVector(Drows, "Drows.txt");
+    // std::exit(0);
+
     OPM_TIMEBLOCK(apply);
 
     HIP_CALL(hipMemset(d_z, 0.0, ldb*Nrhs*sizeof(double)));

@@ -60,21 +60,17 @@ extern double ctime_mswapply;
         }                                             \
     }
 
-void saveVectorToFile(const std::vector<double>& vec, const std::string& filename) {
-    std::ofstream outFile(filename, std::ios::out | std::ios::binary);  // Open file in binary mode
-    if (!outFile) {
-        std::cerr << "Error opening file for writing." << std::endl;
-        return;
+template <class Scalar>
+void saveVector(std::vector<Scalar> vec, std::string filename){
+    std::ofstream output_file(filename);
+    if (output_file.is_open()) {
+        for (const auto& num : vec) {
+            output_file << num << " ";
+        }
+        output_file.close();
+    } else {
+        std::cerr << "Error opening file." << std::endl;
     }
-
-    // Save vector size first to know how many elements to read back later
-    size_t size = vec.size();
-    outFile.write(reinterpret_cast<const char*>(&size), sizeof(size));
-
-    // Write the contents of the vector
-    outFile.write(reinterpret_cast<const char*>(vec.data()), size * sizeof(int));
-
-    outFile.close();
 }
 
 namespace Opm
@@ -184,6 +180,13 @@ void WellContributionsRocsparse::apply_stdwells([[maybe_unused]] double *d_x,
 }
 
 void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
+    // h_x.resize(this->N);
+    // h_y.resize(this->N);
+    // HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * this->N, hipMemcpyDeviceToHost, stream));
+    // HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * this->N, hipMemcpyDeviceToHost, stream));
+    // saveVector(h_x, "vecx.txt");
+    // saveVector(h_y, "vecy.txt");
+
     Dune::Timer applyMethod_timer;
     // actually apply MultisegmentWells
     for (auto& well : multisegments) {
@@ -191,21 +194,6 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         well->apply(d_x, d_y);
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
-        /*
-        if (well->Mb == 27 && vector_save == 0.0){
-            if (h_x.empty()) {
-                h_x.resize(this->N);
-                h_y.resize(this->N);
-                HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * this->N, hipMemcpyDeviceToHost, stream));
-                HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * this->N, hipMemcpyDeviceToHost, stream));
-            }
-
-            saveVectorToFile(h_x, "vector-x"+std::to_string(well->Mb)+".bin");
-            saveVectorToFile(h_y, "vector-y"+std::to_string(well->Mb)+".bin");
-
-            vector_save = 1.0;
-        }
-        */
     }
 
 }
