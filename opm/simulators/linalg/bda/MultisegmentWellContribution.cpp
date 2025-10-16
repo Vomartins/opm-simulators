@@ -67,6 +67,16 @@ extern double dmatrix_apply_count;
     }                                                                          \
   } while (0)
 
+  #define ROCSPARSE_CALL(call)                                                   \
+  do {                                                                           \
+      rocsparse_status err = call;                                               \
+      if (rocsparse_status_success != err) {                                     \
+      printf("rocSPARSE ERROR (code = %d) at %s:%d\n", err, __FILE__,            \
+              __LINE__);                                                         \
+      exit(1);                                                                   \
+      }                                                                          \
+  } while (0)
+
 void checkHIPAlloc(void* ptr) {
     if (ptr == nullptr) {
         std::cerr << "HIP malloc failed." << std::endl;
@@ -357,7 +367,20 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     // saveVector(Brows, "Brows.txt");
     // std::exit(0);
 
+    std::vector<int> signedBcols(Bcols.begin(), Bcols.end());
+    std::vector<int> signedBrows(Brows.begin(), Brows.end());
+
+    BCSRrecttoCSR(Bvals, signedBcols, signedBrows, dim_wells, dim, Bvals_, Bcols_, Brows_);
+
+    BCSRrecttoCSR(Cvals, signedBcols, signedBrows, dim_wells, dim, Cvals_, Ccols_, Crows_);
+
     ROCSOLVER_CALL(rocblas_create_handle(&handle));
+
+    ROCSPARSE_CALL(rocsparse_create_handle(&sparse_handle));
+    ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_B));
+    ROCSPARSE_CALL(rocsparse_create_mat_info(&B_info));
+    ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_C));
+    ROCSPARSE_CALL(rocsparse_create_mat_info(&C_info));
 
     Dune::Timer alloc_timer;
     alloc_timer.start();
@@ -384,6 +407,11 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     free(Dmatrix);
 
     ROCSOLVER_CALL(rocblas_destroy_handle(handle));
+    ROCSPARSE_CALL(rocsparse_destroy_handle(sparse_handle));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_descr(descr_B));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_descr(descr_C));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_info(B_info));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_info(C_info));
 
     rocSOLVERFree();
 }
@@ -392,15 +420,19 @@ void MultisegmentWellContribution::rocSOLVERAlloc()
 {
     HIP_CALL(hipMalloc(&d_Dmatrix, sizeof(double)*rocM*rocN));
     checkHIPAlloc(d_Dmatrix);
-    HIP_CALL(hipMalloc(&d_Cvals, sizeof(double)*size(Cvals)));
+    HIP_CALL(hipMalloc(&d_Cvals, sizeof(double)*size(Cvals_)));
     checkHIPAlloc(d_Cvals);
-    HIP_CALL(hipMalloc(&d_Bvals, sizeof(double)*size(Bvals)));
+    HIP_CALL(hipMalloc(&d_Ccols, sizeof(double)*size(Ccols_)));
+    checkHIPAlloc(d_Ccols);
+    HIP_CALL(hipMalloc(&d_Crows, sizeof(double)*size(Crows_)));
+    checkHIPAlloc(d_Crows);
+    HIP_CALL(hipMalloc(&d_Bvals, sizeof(double)*size(Bvals_)));
     checkHIPAlloc(d_Bvals);
-    HIP_CALL(hipMalloc(&d_Bcols, sizeof(unsigned int)*size(Bcols)));
+    HIP_CALL(hipMalloc(&d_Bcols, sizeof(unsigned int)*size(Bcols_)));
     checkHIPAlloc(d_Bcols);
-    HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows)));
+    HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows_)));
     checkHIPAlloc(d_Brows);
-    HIP_CALL(hipMalloc(&d_aux_x, sizeof(double)*dim*size(Bcols)));
+    HIP_CALL(hipMalloc(&d_aux_x, sizeof(double)*dim*size(Bcols_)));
     checkHIPAlloc(d_aux_x);
 
     HIP_CALL(hipMalloc(&ipiv, sizeof(rocblas_int)*ipivDim));
@@ -413,10 +445,12 @@ void MultisegmentWellContribution::rocSOLVERAlloc()
 
 void MultisegmentWellContribution::matricesToDevice()
 {
-    HIP_CALL(hipMemcpy(d_Cvals, Cvals.data(), size(Cvals)*sizeof(double), hipMemcpyHostToDevice));
-    HIP_CALL(hipMemcpy(d_Bvals, Bvals.data(), size(Bvals)*sizeof(double), hipMemcpyHostToDevice));
-    HIP_CALL(hipMemcpy(d_Bcols, Bcols.data(), size(Bcols)*sizeof(unsigned int), hipMemcpyHostToDevice));
-    HIP_CALL(hipMemcpy(d_Brows, Brows.data(), size(Brows)*sizeof(unsigned int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Cvals, Cvals_.data(), size(Cvals_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Ccols, Ccols_.data(), size(Ccols_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Crows, Crows_.data(), size(Crows_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bvals, Bvals_.data(), size(Bvals_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bcols, Bcols_.data(), size(Bcols_)*sizeof(unsigned int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Brows, Brows_.data(), size(Brows_)*sizeof(unsigned int), hipMemcpyHostToDevice));
 
     Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
@@ -564,9 +598,9 @@ void MultisegmentWellContribution::rocsparseBx(double* vals,
     double alpha = 1.0;
     double beta = 0.0;
 
-    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(handle, rocsparse_operation_none, B_M, B_N, B_nnz, descr_B, vals, rows, cols, B_info));
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, vals, rows, cols, B_info));
 
-    ROCSPARSE_CALL(rocsparse_dcsrmv(handle, rocsparse_operation_none, B_M, B_N, B_nnz, &alpha, descr_B, vals, rows, cols, B_info, x, &beta, y));
+    ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_operation, B_M, B_N, B_nnz, &alpha, descr_B, vals, rows, cols, B_info, x, &beta, y));
 
     HIP_CALL(hipGetLastError()); // Check for errors
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
@@ -584,9 +618,9 @@ void MultisegmentWellContribution::rocsparseCz(double* vals,
     double alpha = -1.0;
     double beta = 1.0;
 
-    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(handle, rocsparse_operation_transpose, C_M, C_N, C_nnz, descr_C, vals, rows, cols, C_info));
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, vals, rows, cols, C_info));
 
-    ROCSPARSE_CALL(rocsparse_dcsrmv(handle, rocsparse_operation_transpose, C_M, C_N, C_nnz, &alpha, descr_C, vals, rows, cols, C_info, x, &beta, y));
+    ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, &alpha, descr_C, vals, rows, cols, C_info, x, &beta, y));
 
     HIP_CALL(hipGetLastError()); // Check for errors
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
@@ -641,6 +675,59 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     rocsparseCz(d_Cvals, d_Ccols, d_Crows, d_z, d_y);
     contribsCalc_timer.stop();
     ctime_wellCz += contribsCalc_timer.lastElapsed();
+}
+
+void MultisegmentWellContribution::BCSRrecttoCSR(
+    std::vector<double>& Bval,
+    std::vector<int>& Bcol_ind,
+    std::vector<int>& Brow_ptr,
+    int Br, int Bc,
+    std::vector<double>& val,
+    std::vector<int>& col_ind,
+    std::vector<int>& row_ptr) {
+
+    int num_br = Brow_ptr.size() - 1;
+    int num_bc = *std::max_element(Bcol_ind.begin(), Bcol_ind.end()) + 1;
+    int M = num_br * Br;
+    int N = num_bc * Bc;
+
+    row_ptr.resize(M + 1);
+    row_ptr[0] = 0;
+
+    int csr_idx = 0; // Current index for CSR arrays val and col_ind
+
+    for (int I = 0; I < num_br; I++) {
+        int block_start = Brow_ptr[I];
+        int block_end = Brow_ptr[I + 1];
+
+        for (int r = 0; r < Br; r++) {
+            int i = I * Br + r;
+            if ( i >= M) break;
+
+            for (int block_idx = block_start; block_idx < block_end; block_idx++) {
+                int J  = Bcol_ind[block_idx]; // Block column index
+
+                for ( int c = 0; c < Bc; c++) {
+                    int j = J * Bc + c; // Global column index
+                    if (j >= N) continue;
+
+                    //Assuming row-major block storage
+                    int block_element_idx = block_idx * Br * Bc + r * Bc + c;
+
+                    double value = Bval[block_element_idx];
+
+                    if ( value != 0) {
+                        val.push_back(value);
+                        col_ind.push_back(j);
+                        csr_idx++;
+                    }
+                }
+            }
+            if (i + 1 <= M){
+                row_ptr[i + 1] = csr_idx;
+            }
+        }
+    }
 }
 
 #if HAVE_CUDA

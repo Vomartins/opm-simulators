@@ -76,6 +76,21 @@ private:
     std::vector<int> Drows;              // Rowindicies, contains DnumBlocks*dim*dim_wells entries
     std::vector<unsigned int> Brows;
 
+    // RocSPARSE
+    // Auxiliary vectors to convert B and C to CSR format
+    std::vector<double> Bvals_;
+    std::vector<int> Bcols_;
+    std::vector<int> Brows_;
+    std::vector<double> Cvals_;
+    std::vector<int> Ccols_;
+    std::vector<int> Crows_;
+
+    rocsparse_mat_info  B_info, C_info;
+    rocsparse_mat_descr descr_B, descr_C;
+    rocsparse_handle sparse_handle;
+    rocsparse_operation sparse_operation = rocsparse_operation_none;
+    rocsparse_operation sparse_transposition = rocsparse_operation_transpose;
+
     // RocSOLVER
     rocblas_int rocM;
     rocblas_int rocN;
@@ -88,9 +103,11 @@ private:
     double *Dmatrix;
     double *d_Dmatrix;
     double *d_Cvals;
+    int *d_Ccols;
+    int *d_Crows;
     double *d_Bvals;
-    unsigned int *d_Bcols;
-    unsigned int *d_Brows;
+    int *d_Bcols;
+    int *d_Brows;
     void *d_buffer;
     rocblas_handle handle;
     rocblas_operation operation = rocblas_operation_none;
@@ -148,6 +165,15 @@ public:
     void rocSOLVERFree();
 
     void solveSystem();
+
+    void BCSRrecttoCSR(
+        std::vector<double>& Bval,
+        std::vector<int>& Bcol_ind,
+        std::vector<int>& Brow_ptr,
+        int Br, int Bc,
+        std::vector<double>& val,
+        std::vector<int>& col_ind,
+        std::vector<int>& row_ptr);
 
     void rocsparseBx(double* vals,
                         int* cols,
