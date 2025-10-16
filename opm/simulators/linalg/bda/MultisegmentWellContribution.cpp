@@ -552,6 +552,46 @@ void MultisegmentWellContribution::parallelV1BlocksrmvC_z(double* vals,
     HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
+// Method for operation B_w * x with rocsparse method, B_w must be in CSR format
+void MultisegmentWellContribution::rocsparseBx(double* vals,
+                                                int* cols,
+                                                int* rows,
+                                                double* x,
+                                                double* y) {
+    int B_M = Brows_.size() - 1;
+    int B_N = *std::max_element(Bcols_.begin(), Bcols_.end()) + 1;
+    int B_nnz = Bvals_.size();
+    double alpha = 1.0;
+    double beta = 0.0;
+
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(handle, rocsparse_operation_none, B_M, B_N, B_nnz, descr_B, vals, rows, cols, B_info));
+
+    ROCSPARSE_CALL(rocsparse_dcsrmv(handle, rocsparse_operation_none, B_M, B_N, B_nnz, &alpha, descr_B, vals, rows, cols, B_info, x, &beta, y));
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+}
+
+// Method for operation y = y - C_w^T * x with rocsparse method, C_w must be in CSR format
+void MultisegmentWellContribution::rocsparseCz(double* vals,
+                                                int* cols,
+                                                int* rows,
+                                                double* x,
+                                                double* y) {
+    int C_M = Crows_.size() - 1;
+    int C_N = *std::max_element(Ccols_.begin(), Ccols_.end()) + 1;
+    int C_nnz = Cvals_.size();
+    double alpha = -1.0;
+    double beta = 1.0;
+
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(handle, rocsparse_operation_transpose, C_M, C_N, C_nnz, descr_C, vals, rows, cols, C_info));
+
+    ROCSPARSE_CALL(rocsparse_dcsrmv(handle, rocsparse_operation_transpose, C_M, C_N, C_nnz, &alpha, descr_C, vals, rows, cols, C_info, x, &beta, y));
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+}
+
 /**
 * @brief Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
 * @brief y -= (C^T * (D^-1 * (B * x)))
@@ -578,7 +618,8 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     */
     //parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     //parallelV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
-    parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
+    // parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
+    rocsparseBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z);
     contribsCalc_timer.stop();
     ctime_wellBx += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
@@ -595,8 +636,9 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     /**
     * d_y = d_y - d_C * d_z
     */
-    parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    // parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     //parallelV1BlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
+    rocsparseCz(d_Cvals, d_Ccols, d_Crows, d_z, d_y);
     contribsCalc_timer.stop();
     ctime_wellCz += contribsCalc_timer.lastElapsed();
 }

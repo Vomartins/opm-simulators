@@ -36,6 +36,7 @@
 #include <hip/hip_version.h>
 #include <rocblas/rocblas.h>
 #include <rocsolver/rocsolver.h>
+#include <rocsparse/rocsparse.h>
 
 #include <opm/simulators/timestepping/SimulatorReport.hpp>
 
@@ -147,6 +148,18 @@ public:
     void rocSOLVERFree();
 
     void solveSystem();
+
+    void rocsparseBx(double* vals,
+                        int* cols,
+                        int* rows,
+                        double* x,
+                        double* y);
+
+    void rocsparseCz(double* vals,
+                        int* cols,
+                        int* rows,
+                        double* x,
+                        double* y);
 
     void parallelBlocksrmvB_x(double* vals,
                               unsigned int* cols,
