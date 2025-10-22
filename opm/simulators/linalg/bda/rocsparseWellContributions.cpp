@@ -46,6 +46,8 @@
 #include <fstream>
 #include <iostream>
 
+extern double msw_dataTrans;
+
 #define HIP_CHECK(stat)                               \
     {                                                 \
         if(stat != hipSuccess)                        \
@@ -177,9 +179,12 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         h_x.resize(N);
         h_y.resize(N);
     }
-
+    Dune::Timer dataTrans_timer;
+    dataTrans_timer.start();
     HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
     HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * N, hipMemcpyDeviceToHost, stream));
+    dataTrans_timer.stop();
+    msw_dataTrans += dataTrans_timer.lastElapsed();
     HIP_CHECK(hipStreamSynchronize(stream));
 
     // saveVector(h_x, "vecx.txt");
@@ -191,7 +196,10 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     }
 
     // copy vector y from CPU to GPU
+    dataTrans_timer.start();
     HIP_CHECK(hipMemcpyAsync(d_y, h_y.data(), sizeof(double) * N, hipMemcpyHostToDevice, stream));
+    dataTrans_timer.stop();
+    msw_dataTrans += dataTrans_timer.lastElapsed();
     HIP_CHECK(hipStreamSynchronize(stream));
 }
 

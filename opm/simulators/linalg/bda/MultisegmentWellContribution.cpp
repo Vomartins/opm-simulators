@@ -25,6 +25,14 @@
 #endif // HAVE_UMFPACK
 
 #include <opm/simulators/linalg/bda/MultisegmentWellContribution.hpp>
+// #include <dune/common/timer.hh>
+
+extern double msw_alloc;
+extern double msw_dataTrans;
+extern double msw_LU;
+extern double msw_lsD;
+extern double msw_Bx;
+extern double msw_Cz;
 
 template <class Scalar>
 void saveVector(std::vector<Scalar> vec, std::string filename){
@@ -66,8 +74,12 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     z1.resize(Mb * dim_wells);
     z2.resize(Mb * dim_wells);
 
+    Dune::Timer LU_timer;
+    LU_timer.start();
     umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
     umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
+    LU_timer.stop();
+    msw_LU += LU_timer.lastElapsed();
 }
 
 MultisegmentWellContribution::~MultisegmentWellContribution()
@@ -97,6 +109,8 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
     // exit(1);
 
     // z1 = B * x
+    Dune::Timer Bx_timer;
+    Bx_timer.start();
     for (unsigned int row = 0; row < Mb; ++row) {
         // for every block in the row
         for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
@@ -110,13 +124,21 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
             }
         }
     }
+    Bx_timer.stop();
+    msw_Bx += Bx_timer.lastElapsed();
 
     // z2 = D^-1 * (B * x)
     // umfpack
+    Dune::Timer lsD_timer;
+    lsD_timer.start();
     umfpack_di_solve(UMFPACK_A, Dcols.data(), Drows.data(), Dvals.data(), z2.data(), z1.data(), UMFPACK_Numeric, nullptr, nullptr);
+    lsD_timer.stop();
+    msw_lsD += lsD_timer.lastElapsed();
 
     // y -= (C^T * z2)
     // y -= (C^T * (D^-1 * (B * x)))
+    Dune::Timer Cz_timer;
+    Cz_timer.start();
     for (unsigned int row = 0; row < Mb; ++row) {
         // for every block in the row
         for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
@@ -130,6 +152,8 @@ void MultisegmentWellContribution::apply(double *h_x, double *h_y)
             }
         }
     }
+    Cz_timer.stop();
+    msw_Cz += Cz_timer.lastElapsed();
 }
 
 #if HAVE_CUDA

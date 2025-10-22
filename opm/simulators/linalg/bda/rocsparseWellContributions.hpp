@@ -26,6 +26,9 @@
 
 #include <vector>
 
+#include <dune/common/version.hh>
+#include <dune/common/timer.hh>
+
 
 namespace Opm
 {
