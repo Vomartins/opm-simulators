@@ -91,6 +91,15 @@ private:
     rocsparse_operation sparse_operation = rocsparse_operation_none;
     rocsparse_operation sparse_transposition = rocsparse_operation_transpose;
 
+    double alpha = 0.0;
+    double beta = 0.0;
+    int B_M;
+    int B_N;
+    int B_nnz;
+    int C_M;
+    int C_N;
+    int C_nnz;
+
     // RocSOLVER
     rocblas_int rocM;
     rocblas_int rocN;
@@ -113,6 +122,7 @@ private:
     rocblas_operation operation = rocblas_operation_none;
     double *d_z; // d_z = d_B * d_x
     double *d_rhs;
+
 
     double *d_aux_x;         // Auxiliary array to multiply Bw*xr with a contiguous memory access
 

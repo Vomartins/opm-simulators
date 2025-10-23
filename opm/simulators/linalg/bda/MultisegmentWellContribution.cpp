@@ -400,6 +400,26 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix, lda, ipiv, info));
     LU_timer.stop();
     ctime_wellLU += LU_timer.lastElapsed();
+
+    B_M = Brows_.size() - 1;
+    B_N = *std::max_element(Bcols_.begin(), Bcols_.end()) + 1;
+    B_nnz = Bvals_.size();
+    C_M = Crows_.size() - 1;
+    C_N = *std::max_element(Ccols_.begin(), Ccols_.end()) + 1;
+    C_nnz = Cvals_.size();
+
+    Dune::Timer Bx_timer;
+    Bx_timer.start();
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, d_Bvals, d_Brows, d_Bcols, B_info));
+    Bx_timer.stop();
+    ctime_wellBx += Bx_timer.lastElapsed();
+
+    Dune::Timer Cz_timer;
+    Cz_timer.start();
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, d_Cvals, d_Crows, d_Ccols, C_info));
+    Cz_timer.stop();
+    ctime_wellCz += Cz_timer.lastElapsed();
+
 }
 
 MultisegmentWellContribution::~MultisegmentWellContribution()
@@ -592,13 +612,9 @@ void MultisegmentWellContribution::rocsparseBx(double* vals,
                                                 int* rows,
                                                 double* x,
                                                 double* y) {
-    int B_M = Brows_.size() - 1;
-    int B_N = *std::max_element(Bcols_.begin(), Bcols_.end()) + 1;
-    int B_nnz = Bvals_.size();
-    double alpha = 1.0;
-    double beta = 0.0;
-
-    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, vals, rows, cols, B_info));
+    alpha = 1.0;
+    beta = 0.0;
+    // ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, vals, rows, cols, B_info));
 
     ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_operation, B_M, B_N, B_nnz, &alpha, descr_B, vals, rows, cols, B_info, x, &beta, y));
 
@@ -612,13 +628,9 @@ void MultisegmentWellContribution::rocsparseCz(double* vals,
                                                 int* rows,
                                                 double* x,
                                                 double* y) {
-    int C_M = Crows_.size() - 1;
-    int C_N = *std::max_element(Ccols_.begin(), Ccols_.end()) + 1;
-    int C_nnz = Cvals_.size();
-    double alpha = -1.0;
-    double beta = 1.0;
-
-    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, vals, rows, cols, C_info));
+    alpha = -1.0;
+    beta = 1.0;
+    // ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, vals, rows, cols, C_info));
 
     ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, &alpha, descr_C, vals, rows, cols, C_info, x, &beta, y));
 
