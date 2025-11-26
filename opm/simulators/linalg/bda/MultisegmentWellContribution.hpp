@@ -185,6 +185,8 @@ public:
         std::vector<int>& col_ind,
         std::vector<int>& row_ptr);
 
+    void squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols);
+
     void rocsparseBx(double* vals,
                         int* cols,
                         int* rows,

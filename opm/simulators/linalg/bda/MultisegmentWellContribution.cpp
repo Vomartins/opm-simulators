@@ -27,7 +27,7 @@
 #include <opm/common/ErrorMacros.hpp>
 
 #include <opm/simulators/linalg/bda/MultisegmentWellContribution.hpp>
-#include <opm/simulators/linalg/bda/Reorder.hpp>
+
 
 #include <iostream>
 #include <fstream>
@@ -472,7 +472,7 @@ void MultisegmentWellContribution::matricesToDevice()
     HIP_CALL(hipMemcpy(d_Bcols, Bcols_.data(), size(Bcols_)*sizeof(unsigned int), hipMemcpyHostToDevice));
     HIP_CALL(hipMemcpy(d_Brows, Brows_.data(), size(Brows_)*sizeof(unsigned int), hipMemcpyHostToDevice));
 
-    Accelerator::squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
     HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
 }
 
@@ -739,6 +739,28 @@ void MultisegmentWellContribution::BCSRrecttoCSR(
                 row_ptr[i + 1] = csr_idx;
             }
         }
+    }
+}
+
+void MultisegmentWellContribution::squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
+{
+    int lda = size(Dcols)-1;
+    int nnzs = size(Dvals);
+
+    std::vector<int> Cols(nnzs);
+
+    for(int i=0; i<lda; i++){
+      for(int j=Dcols[i];j<Dcols[i+1];j++){
+        Cols[j] = i;
+      }
+    }
+
+    for(int i=0; i<(lda*lda); i++){
+        Dmatrix[i] = 0;
+    }
+
+    for(int i=0; i<nnzs; i++){
+        Dmatrix[Drows[i]+Cols[i]*lda] = Dvals[i];
     }
 }
 
