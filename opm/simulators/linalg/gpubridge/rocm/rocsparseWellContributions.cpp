@@ -43,6 +43,8 @@
 #include <opm/simulators/linalg/gpubridge/Misc.hpp>
 #include <hip/hip_runtime.h>
 
+extern double msw_dataTrans;
+
 namespace Opm
 {
 
@@ -165,9 +167,12 @@ apply_mswells(Scalar* d_x, Scalar* d_y)
         h_x.resize(this->N);
         h_y.resize(this->N);
     }
-
+    Dune::Timer dataTrans_timer;
+    dataTrans_timer.start();
     HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(Scalar) * this->N, hipMemcpyDeviceToHost, stream));
     HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(Scalar) * this->N, hipMemcpyDeviceToHost, stream));
+    dataTrans_timer.stop();
+    msw_dataTrans += dataTrans_timer.lastElapsed();
     HIP_CHECK(hipStreamSynchronize(stream));
 
     // actually apply MultisegmentWells
@@ -176,7 +181,10 @@ apply_mswells(Scalar* d_x, Scalar* d_y)
     }
 
     // copy vector y from CPU to GPU
+    dataTrans_timer.start();
     HIP_CHECK(hipMemcpyAsync(d_y, h_y.data(), sizeof(Scalar) * this->N, hipMemcpyHostToDevice, stream));
+    dataTrans_timer.stop();
+    msw_dataTrans += dataTrans_timer.lastElapsed();
     HIP_CHECK(hipStreamSynchronize(stream));
 }
 

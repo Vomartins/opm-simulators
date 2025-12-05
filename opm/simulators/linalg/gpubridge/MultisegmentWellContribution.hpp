@@ -28,6 +28,7 @@
 
 #include <umfpack.h>
 #include <dune/common/version.hh>
+#include <dune/common/timer.hh>
 
 namespace Opm
 {
