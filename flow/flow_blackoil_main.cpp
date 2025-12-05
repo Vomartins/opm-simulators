@@ -19,6 +19,13 @@
 
 #include <flow/flow_blackoil.hpp>
 
+double msw_alloc;
+double msw_dataTrans;
+double msw_LU;
+double msw_lsD;
+double msw_Bx;
+double msw_Cz;
+
 int main(int argc, char** argv)
 {
     return Opm::flowBlackoilTpfaMainStandalone(argc, argv);

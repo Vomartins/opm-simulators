@@ -28,6 +28,13 @@
 #include <ostream>
 #include <fmt/format.h>
 
+extern double msw_alloc;
+extern double msw_dataTrans;
+extern double msw_LU;
+extern double msw_lsD;
+extern double msw_Bx;
+extern double msw_Cz;
+
 namespace Opm
 {
     SimulatorReportSingle SimulatorReportSingle::serializationTestObject()
@@ -209,6 +216,22 @@ namespace Opm
             os << fmt::format("  Output write time:          {:7.2f} s",
                               output_write_time + (failureReport ? failureReport->output_write_time : 0.0));
             os << std::endl;
+
+            os << fmt::format("  MSW Apply:          ");
+            os << std::endl;
+            os << fmt::format("     Alloc time:       {:.5f} s", msw_alloc);
+            os << std::endl;
+            os << fmt::format("     Data transfer:    {:.5f} s", msw_dataTrans);
+            os << std::endl;
+            os << fmt::format("     LU factorization: {:.5f} s", msw_LU);
+            os << std::endl;
+            os << fmt::format("     v=Bx:             {:.5f} s", msw_Bx);
+            os << std::endl;
+            os << fmt::format("     Dz=v:             {:.5f} s", msw_lsD);
+            os << std::endl;
+            os << fmt::format("     y=y-Cz:           {:.5f} s", msw_Cz);
+            os << std::endl;
+
         }
 
         int n = total_linearizations + (failureReport ? failureReport->total_linearizations : 0);
