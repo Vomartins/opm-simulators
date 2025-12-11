@@ -495,7 +495,7 @@ void MultisegmentWellContribution::solveSystem()
 {
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
 
-    HIP_CALL(hipDeviceSynchronize());
+    // HIP_CALL(hipDeviceSynchronize());
 }
 
 void MultisegmentWellContribution::parallelBlocksrmvB_x(double* vals,
@@ -516,7 +516,7 @@ void MultisegmentWellContribution::parallelBlocksrmvB_x(double* vals,
     parallel_blocksrmvB_x_k<<<grid, block>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
 
     HIP_CALL(hipGetLastError()); // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 void MultisegmentWellContribution::parallelV1BlocksrmvB_x(double* vals,
@@ -537,7 +537,7 @@ void MultisegmentWellContribution::parallelV1BlocksrmvB_x(double* vals,
     parallel_V1blocksrmvB_x_k<<<grid, block, shared_memory_size>>>(vals, cols, rows, x, y, block_dimM, block_dimN);
 
     HIP_CALL(hipGetLastError()); // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 void MultisegmentWellContribution::parallelV2BlocksrmvB_x(double* vals,
@@ -561,7 +561,7 @@ void MultisegmentWellContribution::parallelV2BlocksrmvB_x(double* vals,
     parallel_V2blocksrmvB_x_k<<<grid, block>>>(vals, rows, aux_x, y, block_dimM, block_dimN);
 
     HIP_CALL(hipGetLastError()); // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
@@ -581,7 +581,7 @@ void MultisegmentWellContribution::parallelBlocksrmvC_z(double* vals,
     parallel_blocksrmvC_z_k<<<grid, block>>>(vals, cols, rows, z, y, block_dimM, block_dimN);
 
     HIP_CALL(hipGetLastError());      // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 void MultisegmentWellContribution::parallelV1BlocksrmvC_z(double* vals,
@@ -603,7 +603,7 @@ void MultisegmentWellContribution::parallelV1BlocksrmvC_z(double* vals,
     parallel_V1blocksrmvC_z_k<<<grid, block, shared_memory_size>>>(vals, cols, rows, z, y, block_dimM, block_dimN);
 
     HIP_CALL(hipGetLastError());      // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 // Method for operation B_w * x with rocsparse method, B_w must be in CSR format
@@ -619,7 +619,7 @@ void MultisegmentWellContribution::rocsparseBx(double* vals,
     ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_operation, B_M, B_N, B_nnz, &alpha, descr_B, vals, rows, cols, B_info, x, &beta, y));
 
     HIP_CALL(hipGetLastError()); // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 // Method for operation y = y - C_w^T * x with rocsparse method, C_w must be in CSR format
@@ -635,7 +635,7 @@ void MultisegmentWellContribution::rocsparseCz(double* vals,
     ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, &alpha, descr_C, vals, rows, cols, C_info, x, &beta, y));
 
     HIP_CALL(hipGetLastError()); // Check for errors
-    HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 /**
@@ -675,7 +675,7 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     */
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
 
-    HIP_CALL(hipDeviceSynchronize());
+    // HIP_CALL(hipDeviceSynchronize());
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
