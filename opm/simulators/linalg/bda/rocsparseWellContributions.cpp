@@ -195,7 +195,7 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
     }
-    HIP_CHECK(hipDeviceSynchronize());
+    // HIP_CHECK(hipDeviceSynchronize());
 }
 
 void WellContributionsRocsparse::apply(double *d_x, double *d_y){
