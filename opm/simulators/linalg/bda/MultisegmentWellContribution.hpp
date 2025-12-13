@@ -100,6 +100,10 @@ private:
     int C_N;
     int C_nnz;
 
+    // Events variables
+    hipEvent_t start_op1, stop_op1_start_op2, stop_op2_start_op3, stop_op3;
+    float time_op1, time_op2, time_op3;
+
     // RocSOLVER
     rocblas_int rocM;
     rocblas_int rocN;

@@ -351,6 +351,11 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     Drows(DrowIndices, DrowIndices + DnumBlocks * dim_wells * dim_wells),
     Brows(std::move(BrowPointers))
 {
+    // Events creation
+    HIP_CALL(hipEventCreate(&start_op1));
+    HIP_CALL(hipEventCreate(&stop_op1_start_op2));
+    HIP_CALL(hipEventCreate(&stop_op2_start_op3));
+    HIP_CALL(hipEventCreate(&stop_op3));
 
     rocM = size(Dcols)-1;
     rocN = rocM;
@@ -434,6 +439,11 @@ MultisegmentWellContribution::~MultisegmentWellContribution()
     ROCSPARSE_CALL(rocsparse_destroy_mat_info(C_info));
 
     rocSOLVERFree();
+
+    hipEventDestroy(start_op1);
+    hipEventDestroy(stop_op1_start_op2);
+    hipEventDestroy(stop_op2_start_op3);
+    hipEventDestroy(stop_op3);
 }
 
 void MultisegmentWellContribution::rocSOLVERAlloc()
@@ -657,36 +667,45 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
 
     HIP_CALL(hipMemset(d_z, 0.0, ldb*Nrhs*sizeof(double)));
 
-    Dune::Timer contribsCalc_timer;
-    contribsCalc_timer.start();
+
     /**
     * d_v = d_B * d_x
     */
     //parallelBlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     //parallelV1BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_z, size(Brows) - 1, dim_wells, dim);
     // parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
+    HIP_CALL(hipEventRecord(start_op1, 0));
     rocsparseBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z);
-    contribsCalc_timer.stop();
-    ctime_wellBx += contribsCalc_timer.lastElapsed();
-    contribsCalc_timer.start();
+    HIP_CALL(hipEventRecord(stop_op1_start_op2, 0));
+
     /**
     * d_D * d_z = d_v
     * d_z <- d_v
     */
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
+    HIP_CALL(hipEventRecord(stop_op2_start_op3, 0));
 
-    // HIP_CALL(hipDeviceSynchronize());
-    contribsCalc_timer.stop();
-    ctime_welllsD += contribsCalc_timer.lastElapsed();
-    contribsCalc_timer.start();
     /**
     * d_y = d_y - d_C * d_z
     */
     // parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     //parallelV1BlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     rocsparseCz(d_Cvals, d_Ccols, d_Crows, d_z, d_y);
-    contribsCalc_timer.stop();
-    ctime_wellCz += contribsCalc_timer.lastElapsed();
+    HIP_CALL(hipEventRecord(stop_op3, 0));
+
+    HIP_CALL(hipEventSynchronize(stop_op3));
+
+    HIP_CALL(hipEventElapsedTime(&time_op1, start_op1, stop_op1_start_op2));
+    HIP_CALL(hipEventElapsedTime(&time_op2, stop_op1_start_op2, stop_op2_start_op3));
+    HIP_CALL(hipEventElapsedTime(&time_op3, stop_op2_start_op3, stop_op3));
+
+    ctime_wellBx += time_op1/1000.0;
+    ctime_welllsD += time_op2/1000.0;
+    ctime_wellCz += time_op3/1000.0;
+
+
+
+
 }
 
 void MultisegmentWellContribution::BCSRrecttoCSR(
