@@ -711,9 +711,6 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     ctime_welllsD += time_op2/1000.0;
     ctime_wellCz += time_op3/1000.0;
 
-
-
-
 }
 
 void MultisegmentWellContribution::BCSRrecttoCSR(
