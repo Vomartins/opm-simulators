@@ -676,6 +676,7 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     // parallelV2BlocksrmvB_x(d_Bvals, d_Bcols, d_Brows, d_x, d_aux_x, d_z, size(Brows) - 1, dim_wells, dim);
     HIP_CALL(hipEventRecord(start_op1, 0));
     rocsparseBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z);
+    // HIP_CALL(hipDeviceSynchronize());
     HIP_CALL(hipEventRecord(stop_op1_start_op2, 0));
 
     /**
@@ -683,6 +684,7 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     * d_z <- d_v
     */
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
+    // HIP_CALL(hipDeviceSynchronize());
     HIP_CALL(hipEventRecord(stop_op2_start_op3, 0));
 
     /**
@@ -691,6 +693,7 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     // parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     //parallelV1BlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     rocsparseCz(d_Cvals, d_Ccols, d_Crows, d_z, d_y);
+    // HIP_CALL(hipDeviceSynchronize());
     HIP_CALL(hipEventRecord(stop_op3, 0));
 
     HIP_CALL(hipEventSynchronize(stop_op3));

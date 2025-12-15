@@ -197,7 +197,7 @@ namespace Opm
             os << std::endl;
             os << fmt::format("  Msw computePerfRate time:      {:7.5f} s", ctime_mswperfrate);
             os << std::endl;
-            os << fmt::format("  Msw apply time:                {:7.5f} s", well_solver_time);
+            os << fmt::format("  Msw apply time:                {:7.5f} s", ctime_mswapply);
             os << std::endl;
             os << fmt::format("       Msw alloc time:                    {:7.5f} s", ctime_alloc);
             os << std::endl;
