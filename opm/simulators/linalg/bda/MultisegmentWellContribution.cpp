@@ -38,6 +38,7 @@
 #include <chrono>
 #include <iomanip>
 
+extern double ctime_sync;
 extern double ctime_alloc;
 extern double ctime_mswdatatransd;
 extern double ctime_wellLU;
@@ -696,7 +697,11 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     // HIP_CALL(hipDeviceSynchronize());
     HIP_CALL(hipEventRecord(stop_op3, 0));
 
+    Dune::Timer sync_timer;
+    sync_timer.start();
     HIP_CALL(hipEventSynchronize(stop_op3));
+    sync_timer.stop();
+    ctime_sync += sync_timer.lastElapsed();
 
     HIP_CALL(hipEventElapsedTime(&time_op1, start_op1, stop_op1_start_op2));
     HIP_CALL(hipEventElapsedTime(&time_op2, stop_op1_start_op2, stop_op2_start_op3));

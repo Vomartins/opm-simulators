@@ -24,6 +24,7 @@ double ctime_stdwperfrate = 0.0;
 double ctime_stdwapply = 0.0;
 double stdwapply_counter = 0.0;
 
+double ctime_sync = 0.0;
 double ctime_msw = 0.0;
 double ctime_mswperfrate = 0.0;
 double ctime_mswapply = 0.0;
