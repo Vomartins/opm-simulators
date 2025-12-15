@@ -28,6 +28,7 @@
 #include <ostream>
 #include <fmt/format.h>
 
+extern double ctime_sync;
 extern double ctime_msw;
 extern double ctime_mswperfrate;
 extern double ctime_mswapply;
@@ -210,6 +211,8 @@ namespace Opm
             os << fmt::format("       Msw Dz=v:                          {:7.5f} s", ctime_welllsD);
             os << std::endl;
             os << fmt::format("       Msw y = y-Cz:                      {:7.5f} s", ctime_wellCz);
+            os << std::endl;
+            os << fmt::format("  Msw sync time:                {:7.5f} s", ctime_sync);
             os << std::endl;
         }
 

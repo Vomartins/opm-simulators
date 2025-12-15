@@ -38,6 +38,7 @@
 #include <chrono>
 #include <iomanip>
 
+extern double ctime_sync;
 extern double ctime_alloc;
 extern double ctime_mswdatatransd;
 extern double ctime_wellLU;
@@ -676,7 +677,6 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     */
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
     // HIP_CALL(hipDeviceSynchronize());
-    // HIP_CALL(hipDeviceSynchronize());
     contribsCalc_timer.stop();
     ctime_welllsD += contribsCalc_timer.lastElapsed();
     contribsCalc_timer.start();
@@ -686,9 +686,15 @@ void MultisegmentWellContribution::apply(double *d_x, double *d_y)
     // parallelBlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     //parallelV1BlocksrmvC_z(d_Cvals, d_Bcols, d_Brows, d_z, d_y, size(Brows) - 1, dim, dim_wells);
     rocsparseCz(d_Cvals, d_Ccols, d_Crows, d_z, d_y);
-    HIP_CALL(hipDeviceSynchronize());
+    // HIP_CALL(hipDeviceSynchronize());
     contribsCalc_timer.stop();
     ctime_wellCz += contribsCalc_timer.lastElapsed();
+
+    Dune::Timer sync_timer;
+    sync_timer.start();
+    HIP_CALL(hipDeviceSynchronize());
+    sync_timer.stop();
+    ctime_sync += sync_timer.lastElapsed();
 }
 
 void MultisegmentWellContribution::BCSRrecttoCSR(
