@@ -388,24 +388,52 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_C));
     ROCSPARSE_CALL(rocsparse_create_mat_info(&C_info));
 
-    Dune::Timer alloc_timer;
-    alloc_timer.start();
+    // Dune::Timer alloc_timer;
+    // alloc_timer.start();
+    // rocSOLVERAlloc();
+    // alloc_timer.stop();
+    // ctime_alloc += alloc_timer.lastElapsed();
+
+    HIP_CALL(hipEventCreate(&start_alloc));
+    HIP_CALL(hipEventCreate(&stop_alloc));
+    HIP_CALL(hipEventRecord(start_alloc, 0));
     rocSOLVERAlloc();
-    alloc_timer.stop();
-    ctime_alloc += alloc_timer.lastElapsed();
+    HIP_CALL(hipEventRecord(stop_alloc, 0));
+    HIP_CALL(hipEventSynchronize(stop_alloc));
+    HIP_CALL(hipEventElapsedTime(&time_alloc, start_alloc, stop_alloc));
+    ctime_alloc += time_alloc / 1000.0;
 
-    Dune::Timer dataTrans_timer;
-    dataTrans_timer.start();
+    // Dune::Timer dataTrans_timer;
+    // dataTrans_timer.start();
+    // matricesToDevice();
+    // dataTrans_timer.stop();
+    // ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+
+    HIP_CALL(hipEventCreate(&start_transfer));
+    HIP_CALL(hipEventCreate(&stop_transfer));
+    HIP_CALL(hipEventRecord(start_transfer, 0));
     matricesToDevice();
-    dataTrans_timer.stop();
-    ctime_mswdatatransd += dataTrans_timer.lastElapsed();
+    HIP_CALL(hipEventRecord(stop_transfer, 0));
+    HIP_CALL(hipEventSynchronize(stop_transfer));
+    HIP_CALL(hipEventElapsedTime(&time_transfer, start_transfer, stop_transfer));
+    ctime_mswdatatransd += time_transfer / 1000.0;
 
-    Dune::Timer LU_timer;
-    LU_timer.start();
-    // LU factorization
+    // Dune::Timer LU_timer;
+    // LU_timer.start();
+    // // LU factorization
+    // ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix, lda, ipiv, info));
+    // LU_timer.stop();
+    // ctime_wellLU += LU_timer.lastElapsed();
+
+    HIP_CALL(hipEventCreate(&start_lu));
+    HIP_CALL(hipEventCreate(&stop_lu));
+    HIP_CALL(hipEventRecord(start_lu, 0));
     ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix, lda, ipiv, info));
-    LU_timer.stop();
-    ctime_wellLU += LU_timer.lastElapsed();
+    HIP_CALL(hipEventRecord(stop_lu, 0));
+    HIP_CALL(hipEventSynchronize(stop_lu));
+    HIP_CALL(hipEventElapsedTime(&time_lu, start_lu, stop_lu));
+    ctime_wellLU += time_lu / 1000.0;
+
 
     B_M = Brows_.size() - 1;
     B_N = *std::max_element(Bcols_.begin(), Bcols_.end()) + 1;
@@ -414,17 +442,35 @@ MultisegmentWellContribution::MultisegmentWellContribution(unsigned int dim_, un
     C_N = *std::max_element(Ccols_.begin(), Ccols_.end()) + 1;
     C_nnz = Cvals_.size();
 
-    Dune::Timer Bx_timer;
-    Bx_timer.start();
-    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, d_Bvals, d_Brows, d_Bcols, B_info));
-    Bx_timer.stop();
-    ctime_wellBx += Bx_timer.lastElapsed();
+    // Dune::Timer Bx_timer;
+    // Bx_timer.start();
+    // ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, d_Bvals, d_Brows, d_Bcols, B_info));
+    // Bx_timer.stop();
+    // ctime_wellBx += Bx_timer.lastElapsed();
 
-    Dune::Timer Cz_timer;
-    Cz_timer.start();
+    HIP_CALL(hipEventCreate(&start_bx));
+    HIP_CALL(hipEventCreate(&stop_bx));
+    HIP_CALL(hipEventRecord(start_bx, 0));
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, d_Bvals, d_Brows, d_Bcols, B_info));
+    HIP_CALL(hipEventRecord(stop_bx, 0));
+    HIP_CALL(hipEventSynchronize(stop_bx));
+    HIP_CALL(hipEventElapsedTime(&time_bx, start_bx, stop_bx));
+    ctime_wellBx += time_bx / 1000.0;
+
+    // Dune::Timer Cz_timer;
+    // Cz_timer.start();
+    // ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, d_Cvals, d_Crows, d_Ccols, C_info));
+    // Cz_timer.stop();
+    // ctime_wellCz += Cz_timer.lastElapsed();
+
+    HIP_CALL(hipEventCreate(&start_cz));
+    HIP_CALL(hipEventCreate(&stop_cz));
+    HIP_CALL(hipEventRecord(start_cz, 0));
     ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, d_Cvals, d_Crows, d_Ccols, C_info));
-    Cz_timer.stop();
-    ctime_wellCz += Cz_timer.lastElapsed();
+    HIP_CALL(hipEventRecord(stop_cz, 0));
+    HIP_CALL(hipEventSynchronize(stop_cz));
+    HIP_CALL(hipEventElapsedTime(&time_cz, start_cz, stop_cz));
+    ctime_wellCz += time_cz / 1000.0;
 
 }
 

@@ -103,6 +103,16 @@ private:
     // Events variables
     hipEvent_t start_op1, stop_op1_start_op2, stop_op2_start_op3, stop_op3;
     float time_op1, time_op2, time_op3;
+    hipEvent_t start_alloc, stop_alloc;
+    float time_alloc;
+    hipEvent_t start_transfer, stop_transfer;
+    float time_transfer;
+    hipEvent_t start_lu, stop_lu;
+    float time_lu;
+    hipEvent_t start_bx, stop_bx;
+    float time_bx;
+    hipEvent_t start_cz, stop_cz;
+    float time_cz;
 
     // RocSOLVER
     rocblas_int rocM;
