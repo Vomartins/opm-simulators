@@ -186,13 +186,15 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
     // HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(double) * this->N, hipMemcpyDeviceToHost, stream));
     // saveVector(h_x, "vecx.txt");
     // saveVector(h_y, "vecy.txt");
-
+    HIP_CHECK(hipDeviceSynchronize());
     Dune::Timer applyMethod_timer;
     // actually apply MultisegmentWells
     for (auto& well : multisegments) {
         applyMethod_timer.start();
         well->apply(d_x, d_y);
         applyMethod_timer.stop();
+        float time = applyMethod_timer.lastElapsed();
+        //std::cout << " #################################################### " << time << "#################################################### " << std::endl;
         ctime_mswapply += applyMethod_timer.lastElapsed();
     }
     // HIP_CHECK(hipDeviceSynchronize());
