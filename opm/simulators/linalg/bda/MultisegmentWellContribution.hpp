@@ -91,6 +91,8 @@ private:
     rocsparse_operation sparse_operation = rocsparse_operation_none;
     rocsparse_operation sparse_transposition = rocsparse_operation_transpose;
 
+    hipStream_t stream;
+
     double alpha = 0.0;
     double beta = 0.0;
     int B_M;

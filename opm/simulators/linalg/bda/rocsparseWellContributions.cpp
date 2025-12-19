@@ -50,6 +50,7 @@
 #include <vector>
 #include <fstream>
 
+extern double ctime_sync;
 extern double ctime_mswapply;
 
 #define HIP_CHECK(stat)                               \
@@ -195,6 +196,12 @@ void WellContributionsRocsparse::apply_mswells(double *d_x, double *d_y){
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
     }
+
+    // Dune::Timer sync_timer;
+    // sync_timer.start();
+    // HIP_CHECK(hipDeviceSynchronize());
+    // sync_timer.stop();
+    // ctime_sync += sync_timer.lastElapsed();
 }
 
 void WellContributionsRocsparse::apply(double *d_x, double *d_y){
