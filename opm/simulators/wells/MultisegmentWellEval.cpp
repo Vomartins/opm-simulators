@@ -115,10 +115,12 @@ template<class FluidSystem, class Indices>
 void
 MultisegmentWellEval<FluidSystem,Indices>::
 addBCDMatrix(std::vector<BMatrix>& b_matrices,
-             std::vector<CMatrix>& c_matrices,
-             std::vector<DMatrix>& d_matrices,
-             std::vector<std::vector<int>>& wcells) const
+                std::vector<CMatrix>& c_matrices,
+                std::vector<DMatrix>& d_matrices,
+                std::vector<std::vector<int>>& wcells,
+                std::vector<WVector>& residual) const
 {
+    residual.push_back(linSys_.residual());
     b_matrices.push_back(linSys_.getB());
 
     using BlockType = Dune::FieldMatrix<Scalar, PrimaryVariables::numWellEq, Indices::numEq>;

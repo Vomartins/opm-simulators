@@ -171,12 +171,13 @@ namespace Opm {
         void addBCDMatrix(std::vector<BMatrix>& b_matrices,
                           std::vector<CMatrix>& c_matrices,
                           std::vector<DMatrix>& d_matrices,
-                          std::vector<std::vector<int>>& wcells) const override
+                          std::vector<std::vector<int>>& wcells,
+                          std::vector<WVector>& residual) const override
         {
             // System solver is only supported when well DOF dimensions
             // match between WellInterface and MultisegmentWellEval (standard 3-phase blackoil).
             if constexpr (Base::numWellDofs == MSWEval::numWellDofs) {
-                MSWEval::addBCDMatrix(b_matrices, c_matrices, d_matrices, wcells);
+                MSWEval::addBCDMatrix(b_matrices, c_matrices, d_matrices, wcells, residual);
             } else {
                 OPM_THROW(std::runtime_error,
                           "System solver with multisegment wells is only supported for standard "

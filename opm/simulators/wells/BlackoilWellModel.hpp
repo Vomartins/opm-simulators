@@ -293,7 +293,8 @@ template<class Scalar> class WellContributions;
             void addBCDMatrix(std::vector<BMatrix>& b_matrices,
                                             std::vector<CMatrix>& c_matrices,
                                             std::vector<DMatrix>& d_matrices,
-                                            std::vector<std::vector<int>>& wcells) const;
+                                            std::vector<std::vector<int>>& wcells,
+                                            std::vector<WVector>& residual) const;
 
             const WellInterface<TypeTag>& getWell(const std::string& well_name) const;
 

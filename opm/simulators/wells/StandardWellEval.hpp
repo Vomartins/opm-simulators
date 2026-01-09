@@ -53,6 +53,7 @@ public:
     using DMatrix = Dune::BCRSMatrix<Dune::FieldMatrix<Scalar, numWellDofs, numWellDofs>>;
     using WVector = Dune::BlockVector<Dune::FieldVector<Scalar, numWellDofs>>;
 
+
 protected:
     using IndexTraits = typename FluidSystem::IndexTraitsType;
     using PrimaryVariables = StandardWellPrimaryVariables<FluidSystem,Indices>;
@@ -78,7 +79,8 @@ public:
     void addBCDMatrix(std::vector<BMatrix>& b_matrices,
                 std::vector<CMatrix>& c_matrices,
                 std::vector<DMatrix>& d_matrices,
-                std::vector<std::vector<int>>& wcells) const;
+                std::vector<std::vector<int>>& wcells,
+                std::vector<WVector>& residual) const;
 protected:
     explicit StandardWellEval(const WellInterfaceIndices<FluidSystem,Indices>& baseif);
 
