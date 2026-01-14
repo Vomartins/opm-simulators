@@ -43,7 +43,18 @@
 #include <opm/simulators/linalg/gpubridge/Misc.hpp>
 #include <hip/hip_runtime.h>
 
-extern double msw_dataTrans;
+#include <dune/common/timer.hh>
+extern double ctime_mswapply;
+
+#define HIP_CALL(call)                                     \
+  do {                                                     \
+    hipError_t err = call;                                 \
+    if (hipSuccess != err) {                               \
+      printf("HIP ERROR (code = %d, %s) at %s:%d\n", err,  \
+             hipGetErrorString(err), __FILE__, __LINE__);  \
+      exit(1);                                             \
+    }                                                      \
+  } while (0)
 
 namespace Opm
 {
@@ -163,29 +174,15 @@ template<class Scalar>
 void WellContributionsRocsparse<Scalar>::
 apply_mswells(Scalar* d_x, Scalar* d_y)
 {
-    if (h_x.empty()) {
-        h_x.resize(this->N);
-        h_y.resize(this->N);
-    }
-    Dune::Timer dataTrans_timer;
-    dataTrans_timer.start();
-    HIP_CHECK(hipMemcpyAsync(h_x.data(), d_x, sizeof(Scalar) * this->N, hipMemcpyDeviceToHost, stream));
-    HIP_CHECK(hipMemcpyAsync(h_y.data(), d_y, sizeof(Scalar) * this->N, hipMemcpyDeviceToHost, stream));
-    dataTrans_timer.stop();
-    msw_dataTrans += dataTrans_timer.lastElapsed();
-    HIP_CHECK(hipStreamSynchronize(stream));
-
+    Dune::Timer applyMethod_timer;
     // actually apply MultisegmentWells
     for (auto& well : this->multisegments) {
-        well->apply(h_x.data(), h_y.data());
+        applyMethod_timer.start();
+        well->apply(d_x, d_y);
+        applyMethod_timer.stop();
+        ctime_mswapply += applyMethod_timer.lastElapsed();
     }
-
-    // copy vector y from CPU to GPU
-    dataTrans_timer.start();
-    HIP_CHECK(hipMemcpyAsync(d_y, h_y.data(), sizeof(Scalar) * this->N, hipMemcpyHostToDevice, stream));
-    dataTrans_timer.stop();
-    msw_dataTrans += dataTrans_timer.lastElapsed();
-    HIP_CHECK(hipStreamSynchronize(stream));
+    // HIP_CALL(hipDeviceSynchronize());
 }
 
 template<class Scalar>

@@ -30,6 +30,12 @@
 #include <dune/common/version.hh>
 #include <dune/common/timer.hh>
 
+#include <hip/hip_runtime_api.h>
+#include <hip/hip_version.h>
+#include <rocblas/rocblas.h>
+#include <rocsolver/rocsolver.h>
+#include <rocsparse/rocsparse.h>
+
 namespace Opm
 {
 
@@ -43,12 +49,13 @@ namespace Opm
 template<class Scalar>
 class MultisegmentWellContribution
 {
+public:
+    unsigned int Mb;                         // number of blockrows in C, D and B
 
 private:
     unsigned int dim;                        // size of blockvectors in vectors x and y, equal to MultisegmentWell::numEq
     unsigned int dim_wells;                  // size of blocks in C, B and D, equal to MultisegmentWell::numWellEq
     unsigned int M;                          // number of rows, M == dim_wells*Mb
-    unsigned int Mb;                         // number of blockrows in C, D and B
 
 #if HAVE_CUDA
     cudaStream_t stream; // not actually used yet, will be when MultisegmentWellContribution are applied on GPU
@@ -64,9 +71,53 @@ private:
     std::vector<unsigned int> Bcols;
     std::vector<int> Drows;              // Rowindicies, contains DnumBlocks*dim*dim_wells entries
     std::vector<unsigned int> Brows;
-    std::vector<Scalar> z1;          // z1 = B * x
-    std::vector<Scalar> z2;          // z2 = D^-1 * B * x
-    void *UMFPACK_Symbolic, *UMFPACK_Numeric;
+
+    // RocSPARSE
+    // Auxiliary vectors to convert B and C to CSR format
+    std::vector<double> Bvals_;
+    std::vector<int> Bcols_;
+    std::vector<int> Brows_;
+    std::vector<double> Cvals_;
+    std::vector<int> Ccols_;
+    std::vector<int> Crows_;
+
+    rocsparse_mat_info  B_info, C_info;
+    rocsparse_mat_descr descr_B, descr_C;
+    rocsparse_handle sparse_handle;
+    rocsparse_operation sparse_operation = rocsparse_operation_none;
+    rocsparse_operation sparse_transposition = rocsparse_operation_transpose;
+
+    double alpha = 0.0;
+    double beta = 0.0;
+    int B_M;
+    int B_N;
+    int B_nnz;
+    int C_M;
+    int C_N;
+    int C_nnz;
+
+    // RocSOLVER
+    rocblas_int rocM;
+    rocblas_int rocN;
+    rocblas_int Nrhs = 1;
+    rocblas_int lda;
+    rocblas_int ldb;
+    rocblas_int *info;
+    rocblas_int *ipiv;
+    int ipivDim;
+    double *Dmatrix;
+    double *d_Dmatrix;
+    double *d_Cvals;
+    int *d_Ccols;
+    int *d_Crows;
+    double *d_Bvals;
+    int *d_Bcols;
+    int *d_Brows;
+    void *d_buffer;
+    rocblas_handle handle;
+    rocblas_operation operation = rocblas_operation_none;
+    double *d_z; // d_z = d_B * d_x
+    double *d_rhs;
 
     /// Translate the columnIndex if needed
     /// Some preconditioners reorder the rows of the matrix, this means the columnIndices of the wellcontributions need to be reordered as well
@@ -113,7 +164,38 @@ public:
     /// performs y -= (C^T * (D^-1 * (B*x))) for MultisegmentWell
     /// \param[in] h_x          vector x, must be on CPU
     /// \param[inout] h_y       vector y, must be on CPU
-    void apply(Scalar* h_x, Scalar* h_y);
+    void apply(double *d_x, double *d_y);
+
+    void rocSOLVERAlloc();
+
+    void matricesToDevice();
+
+    void rocSOLVERFree();
+
+    void solveSystem();
+
+    void BCSRrecttoCSR(
+        std::vector<double>& Bval,
+        std::vector<int>& Bcol_ind,
+        std::vector<int>& Brow_ptr,
+        int Br, int Bc,
+        std::vector<double>& val,
+        std::vector<int>& col_ind,
+        std::vector<int>& row_ptr);
+
+    void squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols);
+
+    void rocsparseBx(double* vals,
+                        int* cols,
+                        int* rows,
+                        double* x,
+                        double* y);
+
+    void rocsparseCz(double* vals,
+                        int* cols,
+                        int* rows,
+                        double* x,
+                        double* y);
 };
 
 } //namespace Opm

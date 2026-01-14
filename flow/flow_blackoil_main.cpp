@@ -19,12 +19,13 @@
 
 #include <flow/flow_blackoil.hpp>
 
-double msw_alloc;
-double msw_dataTrans;
-double msw_LU;
-double msw_lsD;
-double msw_Bx;
-double msw_Cz;
+double ctime_alloc;
+double ctime_datatransD;
+double ctime_wellLU;
+double ctime_welllsD;
+double ctime_wellBx;
+double ctime_wellCz;
+double ctime_mswapply;
 
 int main(int argc, char** argv)
 {

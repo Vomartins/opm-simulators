@@ -27,12 +27,59 @@
 #include <dune/istl/umfpack.hh>
 #endif // HAVE_UMFPACK
 
-extern double msw_alloc;
-extern double msw_dataTrans;
-extern double msw_LU;
-extern double msw_lsD;
-extern double msw_Bx;
-extern double msw_Cz;
+#include <iostream>
+#include <fstream>
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+#include <chrono>
+#include <iomanip>
+
+extern double ctime_alloc;
+extern double ctime_datatransD;
+extern double ctime_wellLU;
+extern double ctime_welllsD;
+extern double ctime_wellBx;
+extern double ctime_wellCz;
+
+#define HIP_CALL(call)                                     \
+  do {                                                     \
+    hipError_t err = call;                                 \
+    if (hipSuccess != err) {                               \
+      printf("HIP ERROR (code = %d, %s) at %s:%d\n", err,  \
+             hipGetErrorString(err), __FILE__, __LINE__);  \
+      exit(1);                                             \
+    }                                                      \
+  } while (0)
+
+#define ROCSOLVER_CALL(call)                                                   \
+  do {                                                                         \
+    rocblas_status err = call;                                                 \
+    if (rocblas_status_success != err) {                                       \
+      printf("rocSOLVER ERROR (code = %d) at %s:%d\n", err, __FILE__,          \
+             __LINE__);                                                        \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (0)
+
+  #define ROCSPARSE_CALL(call)                                                   \
+  do {                                                                           \
+      rocsparse_status err = call;                                               \
+      if (rocsparse_status_success != err) {                                     \
+      printf("rocSPARSE ERROR (code = %d) at %s:%d\n", err, __FILE__,            \
+              __LINE__);                                                         \
+      exit(1);                                                                   \
+      }                                                                          \
+  } while (0)
+
+void checkHIPAlloc(void* ptr) {
+    if (ptr == nullptr) {
+        std::cerr << "HIP malloc failed." << std::endl;
+        exit(1);
+    }
+}
+
 
 namespace Opm {
 
@@ -48,106 +95,308 @@ MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
                              UMFPackIndex* DcolPointers,
                              UMFPackIndex* DrowIndices,
                              std::vector<Scalar>& Cvalues)
-    : dim(dim_)                // size of blockvectors in vectors x and y, equal to MultisegmentWell::numEq
-    , dim_wells(dim_wells_)    // size of blocks in C, B and D, equal to MultisegmentWell::numWellEq
-    , M(Mb_ * dim_wells)       // number of rows, M == dim_wells*Mb
-    , Mb(Mb_)                  // number of blockrows in C, D and B
-    , DnumBlocks(DnumBlocks_)  // number of blocks in D
+:
+    Mb(Mb_),                  // number of blockrows in C, D and B
+    dim(dim_),                // size of blockvectors in vectors x and y, equal to MultisegmentWell::numEq
+    dim_wells(dim_wells_),    // size of blocks in C, B and D, equal to MultisegmentWell::numWellEq
+    M(Mb_ * dim_wells),       // number of rows, M == dim_wells*Mb
+    DnumBlocks(DnumBlocks_),  // number of blocks in D
     // copy data for matrix D into vectors to prevent it going out of scope
-    , Dvals(Dvalues, Dvalues + DnumBlocks * dim_wells * dim_wells)
-    , Dcols(DcolPointers, DcolPointers + M + 1)
-    , Drows(DrowIndices, DrowIndices + DnumBlocks * dim_wells * dim_wells)
+    Cvals(std::move(Cvalues)),
+    Dvals(Dvalues, Dvalues + DnumBlocks * dim_wells * dim_wells),
+    Bvals(std::move(Bvalues)),
+    Dcols(DcolPointers, DcolPointers + M + 1),
+    Bcols(std::move(BcolIndices)),
+    Drows(DrowIndices, DrowIndices + DnumBlocks * dim_wells * dim_wells),
+    Brows(std::move(BrowPointers))
 {
-    Cvals = std::move(Cvalues);
-    Bvals = std::move(Bvalues);
-    Bcols = std::move(BcolIndices);
-    Brows = std::move(BrowPointers);
+    rocM = size(Dcols)-1;
+    rocN = rocM;
+    lda = rocM > rocN ? rocM : rocN;
+    ldb = Mb*dim_wells;
+    ipivDim = rocM > rocN ? rocN : rocM;
 
-    z1.resize(Mb * dim_wells);
-    z2.resize(Mb * dim_wells);
+    Dmatrix = (double*)malloc(sizeof(double)*rocM*rocN);
 
-    if constexpr (std::is_same_v<Scalar,float>) {
-        OPM_THROW(std::runtime_error, "Cannot use multisegment wells with float");
-    } else {
-        Dune::Timer LU_timer;
-        LU_timer.start();
-        umfpack_di_symbolic(M, M, Dcols.data(), Drows.data(), Dvals.data(), &UMFPACK_Symbolic, nullptr, nullptr);
-        umfpack_di_numeric(Dcols.data(), Drows.data(), Dvals.data(), UMFPACK_Symbolic, &UMFPACK_Numeric, nullptr, nullptr);
-        LU_timer.stop();
-        msw_LU += LU_timer.lastElapsed();
-    }
+    std::vector<int> signedBcols(Bcols.begin(), Bcols.end());
+    std::vector<int> signedBrows(Brows.begin(), Brows.end());
+
+    BCSRrecttoCSR(Bvals, signedBcols, signedBrows, dim_wells, dim, Bvals_, Bcols_, Brows_);
+
+    BCSRrecttoCSR(Cvals, signedBcols, signedBrows, dim_wells, dim, Cvals_, Ccols_, Crows_);
+
+    ROCSOLVER_CALL(rocblas_create_handle(&handle));
+
+    ROCSPARSE_CALL(rocsparse_create_handle(&sparse_handle));
+    ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_B));
+    ROCSPARSE_CALL(rocsparse_create_mat_info(&B_info));
+    ROCSPARSE_CALL(rocsparse_create_mat_descr(&descr_C));
+    ROCSPARSE_CALL(rocsparse_create_mat_info(&C_info));
+
+    Dune::Timer alloc_timer;
+    alloc_timer.start();
+    rocSOLVERAlloc();
+    alloc_timer.stop();
+    ctime_alloc += alloc_timer.lastElapsed();
+
+    Dune::Timer dataTrans_timer;
+    dataTrans_timer.start();
+    matricesToDevice();
+    dataTrans_timer.stop();
+    ctime_datatransD += dataTrans_timer.lastElapsed();
+
+    Dune::Timer LU_timer;
+    LU_timer.start();
+    // LU factorization
+    ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix, lda, ipiv, info));
+    LU_timer.stop();
+    ctime_wellLU += LU_timer.lastElapsed();
+
+    B_M = Brows_.size() - 1;
+    B_N = *std::max_element(Bcols_.begin(), Bcols_.end()) + 1;
+    B_nnz = Bvals_.size();
+    C_M = Crows_.size() - 1;
+    C_N = *std::max_element(Ccols_.begin(), Ccols_.end()) + 1;
+    C_nnz = Cvals_.size();
+
+    Dune::Timer Bx_timer;
+    Bx_timer.start();
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, d_Bvals, d_Brows, d_Bcols, B_info));
+    Bx_timer.stop();
+    ctime_wellBx += Bx_timer.lastElapsed();
+
+    Dune::Timer Cz_timer;
+    Cz_timer.start();
+    ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, d_Cvals, d_Crows, d_Ccols, C_info));
+    Cz_timer.stop();
+    ctime_wellCz += Cz_timer.lastElapsed();
 }
 
 template<class Scalar>
 MultisegmentWellContribution<Scalar>::~MultisegmentWellContribution()
 {
-    if constexpr (std::is_same_v<Scalar,double>) {
-        umfpack_di_free_symbolic(&UMFPACK_Symbolic);
-        umfpack_di_free_numeric(&UMFPACK_Numeric);
-    }
+    free(Dmatrix);
+
+    ROCSOLVER_CALL(rocblas_destroy_handle(handle));
+    ROCSPARSE_CALL(rocsparse_destroy_handle(sparse_handle));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_descr(descr_B));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_descr(descr_C));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_info(B_info));
+    ROCSPARSE_CALL(rocsparse_destroy_mat_info(C_info));
+
+    rocSOLVERFree();
+}
+
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::rocSOLVERAlloc()
+{
+    HIP_CALL(hipMalloc(&d_Dmatrix, sizeof(double)*rocM*rocN));
+    checkHIPAlloc(d_Dmatrix);
+    HIP_CALL(hipMalloc(&d_Cvals, sizeof(double)*size(Cvals_)));
+    checkHIPAlloc(d_Cvals);
+    HIP_CALL(hipMalloc(&d_Ccols, sizeof(double)*size(Ccols_)));
+    checkHIPAlloc(d_Ccols);
+    HIP_CALL(hipMalloc(&d_Crows, sizeof(double)*size(Crows_)));
+    checkHIPAlloc(d_Crows);
+    HIP_CALL(hipMalloc(&d_Bvals, sizeof(double)*size(Bvals_)));
+    checkHIPAlloc(d_Bvals);
+    HIP_CALL(hipMalloc(&d_Bcols, sizeof(unsigned int)*size(Bcols_)));
+    checkHIPAlloc(d_Bcols);
+    HIP_CALL(hipMalloc(&d_Brows, sizeof(unsigned int)*size(Brows_)));
+    checkHIPAlloc(d_Brows);
+    // HIP_CALL(hipMalloc(&d_aux_x, sizeof(double)*dim*size(Bcols_)));
+    // checkHIPAlloc(d_aux_x);
+
+    HIP_CALL(hipMalloc(&ipiv, sizeof(rocblas_int)*ipivDim));
+    checkHIPAlloc(ipiv);
+    HIP_CALL(hipMalloc(&info, sizeof(rocblas_int)));
+    checkHIPAlloc(info);
+    HIP_CALL(hipMalloc(&d_z, sizeof(double)*ldb*Nrhs));
+    checkHIPAlloc(d_z);
+}
+
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::matricesToDevice()
+{
+    HIP_CALL(hipMemcpy(d_Cvals, Cvals_.data(), size(Cvals_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Ccols, Ccols_.data(), size(Ccols_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Crows, Crows_.data(), size(Crows_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bvals, Bvals_.data(), size(Bvals_)*sizeof(double), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Bcols, Bcols_.data(), size(Bcols_)*sizeof(unsigned int), hipMemcpyHostToDevice));
+    HIP_CALL(hipMemcpy(d_Brows, Brows_.data(), size(Brows_)*sizeof(unsigned int), hipMemcpyHostToDevice));
+
+    squareCSCtoMatrix(Dmatrix, Dvals, Drows, Dcols);
+    HIP_CALL(hipMemcpy(d_Dmatrix, Dmatrix, rocM*rocN*sizeof(double), hipMemcpyHostToDevice));
+}
+
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::rocSOLVERFree()
+{
+    HIP_CALL(hipFree(d_Dmatrix));
+    HIP_CALL(hipFree(d_Cvals));
+    HIP_CALL(hipFree(d_Bvals));
+    HIP_CALL(hipFree(d_Bcols));
+    HIP_CALL(hipFree(d_Brows));
+    // HIP_CALL(hipFree(d_aux_x));
+
+    HIP_CALL(hipFree(ipiv));
+    HIP_CALL(hipFree(info));
+    HIP_CALL(hipFree(d_z));
+
+}
+
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::solveSystem()
+{
+    ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
+
+    // HIP_CALL(hipDeviceSynchronize());
+}
+
+// Method for operation B_w * x with rocsparse method, B_w must be in CSR format
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::rocsparseBx(double* vals,
+                                                int* cols,
+                                                int* rows,
+                                                double* x,
+                                                double* y) {
+    alpha = 1.0;
+    beta = 0.0;
+    // ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_operation, B_M, B_N, B_nnz, descr_B, vals, rows, cols, B_info));
+
+    ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_operation, B_M, B_N, B_nnz, &alpha, descr_B, vals, rows, cols, B_info, x, &beta, y));
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
+}
+
+// Method for operation y = y - C_w^T * x with rocsparse method, C_w must be in CSR format
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::rocsparseCz(double* vals,
+                                                int* cols,
+                                                int* rows,
+                                                double* x,
+                                                double* y) {
+    alpha = -1.0;
+    beta = 1.0;
+    // ROCSPARSE_CALL(rocsparse_dcsrmv_analysis(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, descr_C, vals, rows, cols, C_info));
+
+    ROCSPARSE_CALL(rocsparse_dcsrmv(sparse_handle, sparse_transposition, C_M, C_N, C_nnz, &alpha, descr_C, vals, rows, cols, C_info, x, &beta, y));
+
+    HIP_CALL(hipGetLastError()); // Check for errors
+    // HIP_CALL(hipDeviceSynchronize()); // Synchronize after kernel execution
 }
 
 // Apply the MultisegmentWellContribution, similar to MultisegmentWell::apply()
 // h_x and h_y reside on host
 // y -= (C^T * (D^-1 * (B * x)))
 template<class Scalar>
-void MultisegmentWellContribution<Scalar>::apply(Scalar* h_x, Scalar* h_y)
+void MultisegmentWellContribution<Scalar>::apply(double *d_x, double *d_y)
 {
     OPM_TIMEBLOCK(apply);
-    // reset z1 and z2
-    std::fill(z1.begin(), z1.end(), 0.0);
-    std::fill(z2.begin(), z2.end(), 0.0);
+    HIP_CALL(hipMemset(d_z, 0.0, ldb*Nrhs*sizeof(double)));
 
-    // z1 = B * x
-    Dune::Timer Bx_timer;
-    Bx_timer.start();
-    for (unsigned int row = 0; row < Mb; ++row) {
-        // for every block in the row
-        for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
-            unsigned int colIdx = Bcols[blockID];
-            for (unsigned int j = 0; j < dim_wells; ++j) {
-                Scalar temp = 0.0;
-                for (unsigned int k = 0; k < dim; ++k) {
-                    temp += Bvals[blockID * dim * dim_wells + j * dim + k] * h_x[colIdx * dim + k];
+    Dune::Timer contribsCalc_timer;
+    contribsCalc_timer.start();
+    /**
+    * d_v = d_B * d_x
+    */
+    rocsparseBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z);
+    contribsCalc_timer.stop();
+    ctime_wellBx += contribsCalc_timer.lastElapsed();
+    contribsCalc_timer.start();
+    /**
+    * d_D * d_z = d_v
+    * d_z <- d_v
+    */
+    ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
+
+    // HIP_CALL(hipDeviceSynchronize());
+    contribsCalc_timer.stop();
+    ctime_welllsD += contribsCalc_timer.lastElapsed();
+    contribsCalc_timer.start();
+    /**
+    * d_y = d_y - d_C * d_z
+    */
+    contribsCalc_timer.stop();
+    ctime_wellCz += contribsCalc_timer.lastElapsed();
+}
+
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::BCSRrecttoCSR(
+    std::vector<double>& Bval,
+    std::vector<int>& Bcol_ind,
+    std::vector<int>& Brow_ptr,
+    int Br, int Bc,
+    std::vector<double>& val,
+    std::vector<int>& col_ind,
+    std::vector<int>& row_ptr) {
+
+    int num_br = Brow_ptr.size() - 1;
+    int num_bc = *std::max_element(Bcol_ind.begin(), Bcol_ind.end()) + 1;
+    int M = num_br * Br;
+    int N = num_bc * Bc;
+
+    row_ptr.resize(M + 1);
+    row_ptr[0] = 0;
+
+    int csr_idx = 0; // Current index for CSR arrays val and col_ind
+
+    for (int I = 0; I < num_br; I++) {
+        int block_start = Brow_ptr[I];
+        int block_end = Brow_ptr[I + 1];
+
+        for (int r = 0; r < Br; r++) {
+            int i = I * Br + r;
+            if ( i >= M) break;
+
+            for (int block_idx = block_start; block_idx < block_end; block_idx++) {
+                int J  = Bcol_ind[block_idx]; // Block column index
+
+                for ( int c = 0; c < Bc; c++) {
+                    int j = J * Bc + c; // Global column index
+                    if (j >= N) continue;
+
+                    //Assuming row-major block storage
+                    int block_element_idx = block_idx * Br * Bc + r * Bc + c;
+
+                    double value = Bval[block_element_idx];
+
+                    if ( value != 0) {
+                        val.push_back(value);
+                        col_ind.push_back(j);
+                        csr_idx++;
+                    }
                 }
-                z1[row * dim_wells + j] += temp;
+            }
+            if (i + 1 <= M){
+                row_ptr[i + 1] = csr_idx;
             }
         }
     }
-    Bx_timer.stop();
-    msw_Bx += Bx_timer.lastElapsed();
+}
 
-    // z2 = D^-1 * (B * x)
-    // umfpack
-    if constexpr (std::is_same_v<Scalar,float>) {
-        OPM_THROW(std::runtime_error, "Cannot use multisegment wells with float");
-    } else {
-        Dune::Timer lsD_timer;
-        lsD_timer.start();
-        umfpack_di_solve(UMFPACK_A, Dcols.data(), Drows.data(), Dvals.data(), z2.data(), z1.data(), UMFPACK_Numeric, nullptr, nullptr);
-        lsD_timer.stop();
-        msw_lsD += lsD_timer.lastElapsed();
+template<class Scalar>
+void MultisegmentWellContribution<Scalar>::squareCSCtoMatrix(double *Dmatrix, std::vector<double> Dvals, std::vector<int> Drows, std::vector<int> Dcols)
+{
+    int lda = size(Dcols)-1;
+    int nnzs = size(Dvals);
+
+    std::vector<int> Cols(nnzs);
+
+    for(int i=0; i<lda; i++){
+      for(int j=Dcols[i];j<Dcols[i+1];j++){
+        Cols[j] = i;
+      }
     }
 
-    // y -= (C^T * z2)
-    // y -= (C^T * (D^-1 * (B * x)))
-    Dune::Timer Cz_timer;
-    Cz_timer.start();
-    for (unsigned int row = 0; row < Mb; ++row) {
-        // for every block in the row
-        for (unsigned int blockID = Brows[row]; blockID < Brows[row + 1]; ++blockID) {
-            unsigned int colIdx = Bcols[blockID];
-            for (unsigned int j = 0; j < dim; ++j) {
-                Scalar temp = 0.0;
-                for (unsigned int k = 0; k < dim_wells; ++k) {
-                    temp += Cvals[blockID * dim * dim_wells + j + k * dim] * z2[row * dim_wells + k];
-                }
-                h_y[colIdx * dim + j] -= temp;
-            }
-        }
+    for(int i=0; i<(lda*lda); i++){
+        Dmatrix[i] = 0;
     }
-    Cz_timer.stop();
-    msw_Cz += Cz_timer.lastElapsed();
+
+    for(int i=0; i<nnzs; i++){
+        Dmatrix[Drows[i]+Cols[i]*lda] = Dvals[i];
+    }
 }
 
 #if HAVE_CUDA

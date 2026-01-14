@@ -28,12 +28,13 @@
 #include <ostream>
 #include <fmt/format.h>
 
-extern double msw_alloc;
-extern double msw_dataTrans;
-extern double msw_LU;
-extern double msw_lsD;
-extern double msw_Bx;
-extern double msw_Cz;
+extern double ctime_alloc;
+extern double ctime_datatransD;
+extern double ctime_wellLU;
+extern double ctime_welllsD;
+extern double ctime_wellBx;
+extern double ctime_wellCz;
+extern double ctime_mswapply;
 
 namespace Opm
 {
@@ -217,19 +218,19 @@ namespace Opm
                               output_write_time + (failureReport ? failureReport->output_write_time : 0.0));
             os << std::endl;
 
-            os << fmt::format("  MSW Apply:          ");
+            os << fmt::format("  MSW Apply:          {:.5f} s", ctime_mswapply);
             os << std::endl;
-            os << fmt::format("     Alloc time:       {:.5f} s", msw_alloc);
+            os << fmt::format("     Alloc time:       {:.5f} s", ctime_alloc);
             os << std::endl;
-            os << fmt::format("     Data transfer:    {:.5f} s", msw_dataTrans);
+            os << fmt::format("     Data transfer:    {:.5f} s", ctime_datatransD);
             os << std::endl;
-            os << fmt::format("     LU factorization: {:.5f} s", msw_LU);
+            os << fmt::format("     LU factorization: {:.5f} s", ctime_wellLU);
             os << std::endl;
-            os << fmt::format("     v=Bx:             {:.5f} s", msw_Bx);
+            os << fmt::format("     v=Bx:             {:.5f} s", ctime_wellBx);
             os << std::endl;
-            os << fmt::format("     Dz=v:             {:.5f} s", msw_lsD);
+            os << fmt::format("     Dz=v:             {:.5f} s", ctime_welllsD);
             os << std::endl;
-            os << fmt::format("     y=y-Cz:           {:.5f} s", msw_Cz);
+            os << fmt::format("     y=y-Cz:           {:.5f} s", ctime_wellCz);
             os << std::endl;
 
         }
