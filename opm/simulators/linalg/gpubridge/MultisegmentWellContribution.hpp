@@ -87,6 +87,11 @@ private:
     rocsparse_operation sparse_operation = rocsparse_operation_none;
     rocsparse_operation sparse_transposition = rocsparse_operation_transpose;
 
+    hipEvent_t startOp1, stopOp1_startOp2, stopOp2_startOp3, stopOp3;
+    float time_op1, time_op2, time_op3;
+    hipEvent_t startDataTrans, stopDataTrans_startLU, stopLU;
+    float time_datatrans, time_lu;
+
     double alpha = 0.0;
     double beta = 0.0;
     int B_M;

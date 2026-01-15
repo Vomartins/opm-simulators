@@ -26,6 +26,13 @@ double ctime_welllsD;
 double ctime_wellBx;
 double ctime_wellCz;
 double ctime_mswapply;
+double ctime_syncbefore;
+double ctime_syncafter;
+double ctime_gpudatatransD;
+double ctime_gpuLU;
+double ctime_gpulsD;
+double ctime_gpuBx;
+double ctime_gpuCz;
 
 int main(int argc, char** argv)
 {

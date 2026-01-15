@@ -35,6 +35,13 @@ extern double ctime_welllsD;
 extern double ctime_wellBx;
 extern double ctime_wellCz;
 extern double ctime_mswapply;
+extern double ctime_syncbefore;
+extern double ctime_syncafter;
+extern double ctime_gpudatatransD;
+extern double ctime_gpuLU;
+extern double ctime_gpulsD;
+extern double ctime_gpuBx;
+extern double ctime_gpuCz;
 
 namespace Opm
 {
@@ -218,19 +225,23 @@ namespace Opm
                               output_write_time + (failureReport ? failureReport->output_write_time : 0.0));
             os << std::endl;
 
+            os << fmt::format("  Synchronization:          {:.5f} s", ctime_syncbefore);
+            os << std::endl;
             os << fmt::format("  MSW Apply:          {:.5f} s", ctime_mswapply);
             os << std::endl;
             os << fmt::format("     Alloc time:       {:.5f} s", ctime_alloc);
             os << std::endl;
-            os << fmt::format("     Data transfer:    {:.5f} s", ctime_datatransD);
+            os << fmt::format("     Data transfer:    {:.5f} s/ {:.5f} s", ctime_datatransD, ctime_gpudatatransD);
             os << std::endl;
-            os << fmt::format("     LU factorization: {:.5f} s", ctime_wellLU);
+            os << fmt::format("     LU factorization: {:.5f} s/ {:.5f} s", ctime_wellLU, ctime_gpuLU);
             os << std::endl;
-            os << fmt::format("     v=Bx:             {:.5f} s", ctime_wellBx);
+            os << fmt::format("     v=Bx:             {:.5f} s/ {:.5f} s", ctime_wellBx, ctime_gpuBx);
             os << std::endl;
-            os << fmt::format("     Dz=v:             {:.5f} s", ctime_welllsD);
+            os << fmt::format("     Dz=v:             {:.5f} s/ {:.5f} s", ctime_welllsD, ctime_gpulsD);
             os << std::endl;
-            os << fmt::format("     y=y-Cz:           {:.5f} s", ctime_wellCz);
+            os << fmt::format("     y=y-Cz:           {:.5f} s/ {:.5f} s", ctime_wellCz, ctime_gpuCz);
+            os << std::endl;
+            os << fmt::format("  Synchronization:          {:.5f} s", ctime_syncafter);
             os << std::endl;
 
         }

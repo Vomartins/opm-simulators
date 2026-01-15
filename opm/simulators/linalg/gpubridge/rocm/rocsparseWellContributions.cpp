@@ -45,6 +45,8 @@
 
 #include <dune/common/timer.hh>
 extern double ctime_mswapply;
+extern double ctime_syncbefore;
+extern double ctime_syncafter;
 
 #define HIP_CALL(call)                                     \
   do {                                                     \
@@ -174,15 +176,26 @@ template<class Scalar>
 void WellContributionsRocsparse<Scalar>::
 apply_mswells(Scalar* d_x, Scalar* d_y)
 {
+    Dune::Timer sync_timer;
+    sync_timer.start();
+    HIP_CALL(hipDeviceSynchronize());
+    sync_timer.stop();
+    ctime_syncbefore += sync_timer.lastElapsed();
+
     Dune::Timer applyMethod_timer;
     // actually apply MultisegmentWells
     for (auto& well : this->multisegments) {
         applyMethod_timer.start();
         well->apply(d_x, d_y);
+        // HIP_CALL(hipDeviceSynchronize());
         applyMethod_timer.stop();
         ctime_mswapply += applyMethod_timer.lastElapsed();
     }
-    // HIP_CALL(hipDeviceSynchronize());
+
+    sync_timer.start();
+    HIP_CALL(hipDeviceSynchronize());
+    sync_timer.stop();
+    ctime_syncafter += sync_timer.lastElapsed();
 }
 
 template<class Scalar>
