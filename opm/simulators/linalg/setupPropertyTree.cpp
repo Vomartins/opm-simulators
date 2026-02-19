@@ -240,6 +240,17 @@ setupPropertyTree(FlowLinearSolverParameters p, // Note: copying the parameters 
         }
     }
 
+    // System CPR configuration (coupled reservoir-well system solver).
+    if (conf == "system_cpr") {
+        if (!linearSolverMaxIterSet) {
+            p.linear_solver_maxiter_ = 20;
+        }
+        if (!linearSolverReductionSet) {
+            p.linear_solver_reduction_ = 0.005;
+        }
+        return setupSystemCPR(conf, p);
+    }
+
     if (conf == "amg") {
         return setupAMG(conf, p);
     }

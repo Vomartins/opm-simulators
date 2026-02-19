@@ -105,6 +105,7 @@ public:
         resizeWellWorkVectors();
     }
 
+
     bool hasPerfectUpdate() const override
     {
         return true;
