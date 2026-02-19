@@ -88,8 +88,7 @@ public:
 
         sysRhs_[_0].resize(numRes);
         sysRhs_[_0] = *Parent::rhs_;
-        sysRhs_[_1].resize(numWell);
-        sysRhs_[_1] = 0.0;
+        sysRhs_[_1] = mergedWellResidual_;
 
         Dune::InverseOperatorResult result;
         sysSolver_->apply(sysX_, sysRhs_, result);
@@ -100,15 +99,23 @@ public:
         return this->checkConvergence(result);
     }
 
+    std::optional<typename Parent::WellSolutionView> getWellSolution() const override
+    {
+        return typename Parent::WellSolutionView{sysX_[_1], wellDofOffsets_};
+    }
+
 private:
     bool sysInitialized_ = false;
     WellMatrixStructure cachedWellStructure_;
+    WellVectorT<Scalar> mergedWellResidual_;
+    std::vector<int> wellDofOffsets_;
 
-    // Current per-well B/C/D blocks for the explicit 2x2 system matrix.
+    // Current per-well B/C/D blocks and residuals for the explicit 2x2 system matrix.
     std::vector<WRMatrixT<Scalar>> wellBMatrices_;
     std::vector<RWMatrixT<Scalar>> wellCMatrices_;
     std::vector<WWMatrixT<Scalar>> wellDMatrices_;
     std::vector<std::vector<int>> wellCells_;
+    std::vector<WellVectorT<Scalar>> wellResiduals_;
 
     // Owned storage for merged well matrices; SystemMatrix points into these.
     WRMatrixT<Scalar> mergedB_;
@@ -149,12 +156,15 @@ private:
         wellCMatrices_.clear();
         wellDMatrices_.clear();
         wellCells_.clear();
+        wellResiduals_.clear();
 
         this->simulator_.problem().wellModel().addBCDMatrix(
-            wellBMatrices_, wellCMatrices_, wellDMatrices_, wellCells_);
+            wellBMatrices_, wellCMatrices_, wellDMatrices_, wellCells_, wellResiduals_);
 
         const Opm::WellMatrixMerger<Scalar> merger(
             Parent::matrix_->N(), wellBMatrices_, wellCMatrices_, wellDMatrices_, wellCells_);
+
+        mergeWellResiduals();
 
         const bool localStructureChanged = !sysInitialized_
             || !merger.hasSameStructure(cachedWellStructure_);
@@ -219,6 +229,25 @@ private:
         createSystemSolver(prm);
     }
 
+
+    void mergeWellResiduals()
+    {
+        int totalSize = 0;
+        wellDofOffsets_.clear();
+        wellDofOffsets_.push_back(0);
+        for (const auto& res : wellResiduals_) {
+            totalSize += res.N();
+            wellDofOffsets_.push_back(totalSize);
+        }
+        mergedWellResidual_.resize(totalSize);
+        int offset = 0;
+        for (const auto& res : wellResiduals_) {
+            for (std::size_t i = 0; i < res.N(); ++i) {
+                mergedWellResidual_[offset + i] = res[i];
+            }
+            offset += res.N();
+        }
+    }
 
     void createSystemSolver(const Opm::PropertyTree& prm)
     {

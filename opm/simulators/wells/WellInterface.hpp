@@ -43,6 +43,7 @@ namespace Opm {
 
 #include <opm/simulators/linalg/linalgproperties.hh>
 
+#include <opm/simulators/linalg/system/SystemTypes.hpp>
 #include <opm/simulators/wells/BlackoilWellModel.hpp>
 #include <opm/simulators/wells/GasLiftGroupInfo.hpp>
 #include <opm/simulators/wells/GasLiftSingleWell.hpp>
@@ -182,7 +183,8 @@ public:
                                         const GroupStateHelperType& groupStateHelper,
                                         const double dt,
                                         WellStateType& well_state,
-                                        const bool solving_with_zero_rate);
+                                        const bool solving_with_zero_rate,
+                                        const bool skipLocalInverse);
 
     // Convenience overload that gets scaled fractions internally
     void updateGroupTargetFallbackFlag(WellStateType& well_state,
@@ -218,6 +220,15 @@ public:
                                                        const BVector& x,
                                                        const GroupStateHelperType& groupStateHelper,
                                                        WellStateType& well_state) = 0;
+
+    /// Update well state directly from the well solution obtained
+    /// by the coupled system solver (no D^-1 recovery needed).
+    virtual void updateWellStateFromSystemSolution(const Simulator& simulator,
+                                                   const Opm::WellVectorT<Scalar>& mergedWellSolution,
+                                                   int wellDofOffset,
+                                                   int nWellDofs,
+                                                   const GroupStateHelperType& groupStateHelper,
+                                                   WellStateType& well_state) = 0;
 
     /// Ax = Ax - C D^-1 B x
     virtual void apply(const BVector& x, BVector& Ax) const = 0;
@@ -420,7 +431,8 @@ protected:
                                                 const WellInjectionControls& inj_controls,
                                                 const WellProductionControls& prod_controls,
                                                 WellStateType& well_state,
-                                                const bool solving_with_zero_rate) = 0;
+                                                const bool solving_with_zero_rate,
+                                                const bool skipLocalInverse) = 0;
 
     // iterate well equations with the specified control until converged
     virtual bool iterateWellEqWithControl(const Simulator& simulator,

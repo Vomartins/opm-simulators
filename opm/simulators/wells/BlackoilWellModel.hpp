@@ -296,6 +296,13 @@ template<class Scalar> class WellContributions;
                                             std::vector<std::vector<int>>& wcells,
                                             std::vector<WVector>& residual) const;
 
+            void setWellSolution(WVector solution,
+                                 std::vector<int> dofOffsets)
+            {
+                cachedSystemWellSolution_ = std::move(solution);
+                cachedWellDofOffsets_ = std::move(dofOffsets);
+            }
+
             const WellInterface<TypeTag>& getWell(const std::string& well_name) const;
 
             using PressureMatrix = Dune::BCRSMatrix<Opm::MatrixBlock<Scalar, 1, 1>>;
@@ -653,6 +660,11 @@ template<class Scalar> class WellContributions;
 
             // Store cell rates after assembling to avoid iterating all wells and connections for every element
             std::map<int, RateVector> cellRates_;
+
+            // Cached well solution from the system solver, consumed by
+            // recoverWellSolutionAndUpdateWellState during postSolve.
+            std::optional<WVector> cachedSystemWellSolution_;
+            std::vector<int> cachedWellDofOffsets_;
 
             void assignWellTracerRates(data::Wells& wsrpt) const;
             void assignWellSpeciesRates(data::Wells& wsrpt) const;
