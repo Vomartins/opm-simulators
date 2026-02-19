@@ -53,7 +53,6 @@ public:
     using DMatrix = Dune::BCRSMatrix<Dune::FieldMatrix<Scalar, numWellDofs, numWellDofs>>;
     using WVector = Dune::BlockVector<Dune::FieldVector<Scalar, numWellDofs>>;
 
-
 protected:
     using IndexTraits = typename FluidSystem::IndexTraitsType;
     using PrimaryVariables = StandardWellPrimaryVariables<FluidSystem,Indices>;

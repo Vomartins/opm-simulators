@@ -83,13 +83,13 @@ template<class FluidSystem, class Indices>
 void
 StandardWellEval<FluidSystem,Indices>::
 addBCDMatrix(std::vector<BMatrix>& b_matrices,
-                std::vector<CMatrix>& c_matrices,
-                std::vector<DMatrix>& d_matrices,
-                std::vector<std::vector<int>>& wcells,
-                std::vector<WVector>& residual) const
+             std::vector<CMatrix>& c_matrices,
+             std::vector<DMatrix>& d_matrices,
+             std::vector<std::vector<int>>& wcells,
+             std::vector<WVector>& residual) const
 {
     WVector res(1);
-    for(int i=0; i< primary_variables_.numWellEq(); ++i) {
+    for (int i = 0; i < primary_variables_.numWellEq(); ++i) {
         res[0][i] = linSys_.residual()[0][i];
     }
     residual.push_back(res);

@@ -104,8 +104,6 @@ public:
     using DMatrix = Dune::BCRSMatrix<Dune::FieldMatrix<Scalar, numWellDofs, numWellDofs>>;
     using WVector = Dune::BlockVector<Dune::FieldVector<Scalar, numWellDofs>>;
 
-
-
     using WellStateType = WellState<Scalar, IndexTraits>;
     using SingleWellStateType = SingleWellState<Scalar, IndexTraits>;
     using GroupStateHelperType = GroupStateHelper<Scalar, IndexTraits>;

@@ -40,7 +40,7 @@ template<typename Scalar>
 using SystemVectorT = Dune::MultiTypeBlockVector<ResVectorT<Scalar>, WellVectorT<Scalar>>;
 
 // --------------------------------------------------------------------------
-// SystemMatrix: a lightweight read-only view over a 2×2 block-matrix
+// SystemMatrix: a lightweight read-only view over a 2x2 block-matrix
 // structure.  All four sub-blocks are stored as const pointers; the actual
 // data lives elsewhere (the reservoir block in ISTLSolver::matrix_, the
 // well/coupling blocks in ISTLSolverSystem's merged-matrix members).
@@ -63,10 +63,10 @@ public:
     static constexpr size_type N() { return 2; }
     static constexpr size_type M() { return 2; }
 
-    // Block pointers — set directly by the owning solver.
+    // Block pointers -- set directly by the owning solver.
     const RRMatrixT<Scalar>* A = nullptr;  // (0,0) reservoir
-    const RWMatrixT<Scalar>* C = nullptr;  // (0,1) reservoir–well coupling
-    const WRMatrixT<Scalar>* B = nullptr;  // (1,0) well–reservoir coupling
+    const RWMatrixT<Scalar>* C = nullptr;  // (0,1) reservoir-well coupling
+    const WRMatrixT<Scalar>* B = nullptr;  // (1,0) well-reservoir coupling
     const WWMatrixT<Scalar>* D = nullptr;  // (1,1) well
 
     // Sub-block access: S[_0][_0], S[_0][_1], S[_1][_0], S[_1][_1]
@@ -96,7 +96,7 @@ public:
     }
 };
 
-// Row proxies for  S[row][col]  — simple aggregates, no back-pointers.
+// Row proxies for  S[row][col]  -- simple aggregates, no back-pointers.
 template<typename Scalar>
 struct SystemMatrixRow0T
 {
