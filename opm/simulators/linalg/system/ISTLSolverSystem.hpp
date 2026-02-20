@@ -122,6 +122,7 @@ private:
     RWMatrixT<Scalar> mergedC_;
     WWMatrixT<Scalar> mergedD_;
 
+
     SystemMatrixT<Scalar> sysMatrix_;
     SystemVectorT<Scalar> sysX_;
     SystemVectorT<Scalar> sysRhs_;
