@@ -71,7 +71,8 @@ struct GpuSolverInfo
                const int rank,
                Matrix& matrix,
                Vector& x,
-               Dune::InverseOperatorResult& result);
+               Dune::InverseOperatorResult& result,
+               Opm::SimulatorReportSingle* report_ptr = nullptr);
 
     bool gpuActive();
 
@@ -231,10 +232,10 @@ public:
         // matrix_ = &M.istlMatrix(); // Must be handled in prepare() instead.
     }
 
-    bool solve(Vector& x)
+    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr)
     {
         if (!gpuBridge_) {
-            return ParentType::solve(x);
+            return ParentType::solve(x, nullptr);
         }
 
         OPM_TIMEBLOCK(istlSolverGpuBridgeSolve);
@@ -257,10 +258,11 @@ public:
             {
                 this->simulator_.problem().wellModel().getWellContributions(w);
             };
+        SimulatorReportSingle* report = report_ptr;
         if (!gpuBridge_->apply(*(this->rhs_), this->useWellConn_, getContribs,
                               this->simulator_.gridView().comm().rank(),
                               const_cast<Matrix&>(this->getMatrix()),
-                              x, result))
+                              x, result, report))
         {
             if(gpuBridge_->gpuActive()){
                 // gpu solve fails use istl solver setup need to be done since it is not setup in prepare

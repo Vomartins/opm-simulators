@@ -26,6 +26,8 @@
 #include <cuda_runtime.h>
 #endif
 
+#include <opm/simulators/timestepping/SimulatorReport.hpp>
+
 #include <umfpack.h>
 #include <dune/common/version.hh>
 #include <dune/common/timer.hh>
@@ -169,7 +171,7 @@ public:
     /// performs y -= (C^T * (D^-1 * (B*x))) for MultisegmentWell
     /// \param[in] h_x          vector x, must be on CPU
     /// \param[inout] h_y       vector y, must be on CPU
-    void apply(double *d_x, double *d_y);
+    void apply(double *d_x, double *d_y,  Opm::SimulatorReportSingle* report_ptr);
 
     void rocSOLVERAlloc();
 

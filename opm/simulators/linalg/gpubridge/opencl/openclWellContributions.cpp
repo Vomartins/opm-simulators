@@ -64,7 +64,7 @@ void WellContributionsOCL<Scalar>::apply_mswells(cl::Buffer d_x, cl::Buffer d_y)
 
     // actually apply MultisegmentWells
     for (auto& well : this->multisegments) {
-        well->apply(h_x.data(), h_y.data());
+        well->apply(h_x.data(), h_y.data(), nullptr);
     }
 
     // copy vector y from CPU to GPU

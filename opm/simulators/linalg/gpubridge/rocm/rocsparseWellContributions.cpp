@@ -43,10 +43,8 @@
 #include <opm/simulators/linalg/gpubridge/Misc.hpp>
 #include <hip/hip_runtime.h>
 
+#include <opm/simulators/timestepping/SimulatorReport.hpp>
 #include <dune/common/timer.hh>
-extern double ctime_mswapply;
-extern double ctime_syncbefore;
-extern double ctime_syncafter;
 
 #define HIP_CALL(call)                                     \
   do {                                                     \
@@ -180,22 +178,27 @@ apply_mswells(Scalar* d_x, Scalar* d_y)
     sync_timer.start();
     HIP_CALL(hipDeviceSynchronize());
     sync_timer.stop();
-    ctime_syncbefore += sync_timer.lastElapsed();
-
-    Dune::Timer applyMethod_timer;
-    // actually apply MultisegmentWells
-    for (auto& well : this->multisegments) {
-        applyMethod_timer.start();
-        well->apply(d_x, d_y);
-        // HIP_CALL(hipDeviceSynchronize());
-        applyMethod_timer.stop();
-        ctime_mswapply += applyMethod_timer.lastElapsed();
+    if (this->report_ptr_) {
+        this->report_ptr_->msw_sync1_time += sync_timer.lastElapsed();
     }
 
-    sync_timer.start();
-    HIP_CALL(hipDeviceSynchronize());
-    sync_timer.stop();
-    ctime_syncafter += sync_timer.lastElapsed();
+    Dune::Timer apply_timer;
+    apply_timer.start();
+    // actually apply MultisegmentWells
+    for (auto& well : this->multisegments) {
+        well->apply(d_x, d_y, this->report_ptr_);
+    }
+    apply_timer.stop();
+    if (this->report_ptr_) {
+        this->report_ptr_->msw_apply_time += apply_timer.lastElapsed();
+    }
+
+    // sync_timer.start();
+    // HIP_CALL(hipDeviceSynchronize());
+    // sync_timer.stop();
+    // if (this->report_ptr_) {
+    //     this->report_ptr_->msw_sync2_time += sync_timer.lastElapsed();
+    // }
 }
 
 template<class Scalar>

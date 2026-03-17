@@ -70,6 +70,17 @@ namespace Opm
         int accepted_unconverged_domains = 0;
         int skipped_domains = 0;
 
+        double msw_apply_time = 0.0;
+        double msw_sync1_time = 0.0;
+        double msw_sync2_time = 0.0;
+        double msw_Bx_cpu_time = 0.0;
+        double msw_Bx_gpu_time = 0.0;
+        double msw_lsD_cpu_time = 0.0;
+        double msw_lsD_gpu_time = 0.0;
+        double msw_Cz_cpu_time = 0.0;
+        double msw_Cz_gpu_time = 0.0;
+        double msw_misc_time = 0.0;
+
         static SimulatorReportSingle serializationTestObject();
 
         bool operator==(const SimulatorReportSingle&) const;
@@ -115,6 +126,16 @@ namespace Opm
             serializer(unconverged_domains);
             serializer(accepted_unconverged_domains);
             serializer(skipped_domains);
+            serializer(msw_apply_time);
+            serializer(msw_sync1_time);
+            serializer(msw_sync2_time);
+            serializer(msw_Bx_cpu_time);
+            serializer(msw_Bx_gpu_time);
+            serializer(msw_lsD_cpu_time);
+            serializer(msw_lsD_gpu_time);
+            serializer(msw_Cz_cpu_time);
+            serializer(msw_Cz_gpu_time);
+            serializer(msw_misc_time);
         }
     };
 

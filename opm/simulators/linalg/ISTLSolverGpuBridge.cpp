@@ -101,11 +101,13 @@ apply(Vector& rhs,
       const int rank,
       Matrix& matrix,
       Vector& x,
-      Dune::InverseOperatorResult& result)
+      Dune::InverseOperatorResult& result,
+      Opm::SimulatorReportSingle* report_ptr)
 {
     bool use_gpu = bridge_->getUseGpu();
     if (use_gpu) {
         auto wellContribs = WellContributions<Scalar>::create(accelerator_mode_, useWellConn);
+        if (report_ptr) wellContribs->setSimulatorReportPointer(report_ptr);
         bridge_->initWellContributions(*wellContribs, x.N() * x[0].N());
 
          // the WellContributions can only be applied separately with CUDA, OpenCL or rocsparse, not with amgcl or rocalution

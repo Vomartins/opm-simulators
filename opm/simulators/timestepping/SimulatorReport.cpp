@@ -31,17 +31,9 @@
 extern double ctime_alloc;
 extern double ctime_datatransD;
 extern double ctime_wellLU;
-extern double ctime_welllsD;
-extern double ctime_wellBx;
-extern double ctime_wellCz;
-extern double ctime_mswapply;
-extern double ctime_syncbefore;
-extern double ctime_syncafter;
+
 extern double ctime_gpudatatransD;
 extern double ctime_gpuLU;
-extern double ctime_gpulsD;
-extern double ctime_gpuBx;
-extern double ctime_gpuCz;
 
 namespace Opm
 {
@@ -51,7 +43,8 @@ namespace Opm
                                      7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
                                      13, 14, 15, 16, 17, 18,
                                      true, false, false, 19, 20.0, 21.0,
-                                     22, 23, 24, 25, 26, 27, 28, 29};
+                                     22, 23, 24, 25, 26, 27, 28, 29,
+                                     30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 31.0, 38.0, 39.0};
     }
 
     bool SimulatorReportSingle::operator==(const SimulatorReportSingle& rhs) const
@@ -87,7 +80,17 @@ namespace Opm
                this->converged_domains == rhs.converged_domains &&
                this->unconverged_domains == rhs.unconverged_domains &&
                this->accepted_unconverged_domains == rhs.accepted_unconverged_domains &&
-               this->skipped_domains == rhs.skipped_domains;
+               this->skipped_domains == rhs.skipped_domains&&
+               this->msw_apply_time == rhs.msw_apply_time &&
+               this->msw_sync1_time == rhs.msw_sync1_time &&
+               this->msw_sync2_time == rhs.msw_sync2_time &&
+               this->msw_Bx_cpu_time == rhs.msw_Bx_cpu_time &&
+               this->msw_Bx_gpu_time == rhs.msw_Bx_gpu_time &&
+               this->msw_lsD_cpu_time == rhs.msw_lsD_cpu_time &&
+               this->msw_lsD_gpu_time == rhs.msw_lsD_gpu_time &&
+               this->msw_Cz_cpu_time == rhs.msw_Cz_cpu_time &&
+               this->msw_Cz_gpu_time == rhs.msw_Cz_gpu_time &&
+               this->msw_misc_time == rhs.msw_misc_time;
     }
 
     void SimulatorReportSingle::operator+=(const SimulatorReportSingle& sr)
@@ -117,6 +120,17 @@ namespace Opm
         unconverged_domains += sr.unconverged_domains;
         accepted_unconverged_domains += sr.accepted_unconverged_domains;
         skipped_domains += sr.skipped_domains;
+
+        msw_apply_time += sr.msw_apply_time;
+        msw_sync1_time += sr.msw_sync1_time;
+        msw_sync2_time += sr.msw_sync2_time;
+        msw_Bx_cpu_time += sr.msw_Bx_cpu_time;
+        msw_Bx_gpu_time += sr.msw_Bx_gpu_time;
+        msw_lsD_cpu_time += sr.msw_lsD_cpu_time;
+        msw_lsD_gpu_time += sr.msw_lsD_gpu_time;
+        msw_Cz_cpu_time += sr.msw_Cz_cpu_time;
+        msw_Cz_gpu_time += sr.msw_Cz_gpu_time;
+        msw_misc_time += sr.msw_misc_time;
         // It makes no sense adding time points. Therefore, do not
         // overwrite the value of global_time which gets set in
         // NonlinearSolver.hpp by the line:
@@ -225,23 +239,59 @@ namespace Opm
                               output_write_time + (failureReport ? failureReport->output_write_time : 0.0));
             os << std::endl;
 
-            os << fmt::format("  Synchronization:          {:.5f} s", ctime_syncbefore);
+            os << fmt::format("  Synchronization:          {:.5f} s", msw_sync1_time + (failureReport ? failureReport->msw_sync1_time : 0.0));
             os << std::endl;
-            os << fmt::format("  MSW Apply:          {:.5f} s", ctime_mswapply);
+            os << fmt::format("  Alloc time:       {:.5f} s", ctime_alloc);
             os << std::endl;
-            os << fmt::format("     Alloc time:       {:.5f} s", ctime_alloc);
+            os << fmt::format("  Data transfer:    {:.5f} s/ {:.5f} s", ctime_datatransD, ctime_gpudatatransD);
             os << std::endl;
-            os << fmt::format("     Data transfer:    {:.5f} s/ {:.5f} s", ctime_datatransD, ctime_gpudatatransD);
+            os << fmt::format("  LU factorization: {:.5f} s/ {:.5f} s", ctime_wellLU, ctime_gpuLU);
             os << std::endl;
-            os << fmt::format("     LU factorization: {:.5f} s/ {:.5f} s", ctime_wellLU, ctime_gpuLU);
+            t = msw_apply_time + (failureReport ? failureReport->msw_apply_time : 0.0);
+            os << fmt::format("  MSW Apply:          {:.5f} s", t);
+            if (failureReport) {
+              os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                failureReport->msw_apply_time,
+                                100*failureReport->msw_apply_time/noZero(t));
+            }
             os << std::endl;
-            os << fmt::format("     v=Bx:             {:.5f} s/ {:.5f} s", ctime_wellBx, ctime_gpuBx);
+            double t_cpu, t_gpu;
+            t_cpu = msw_Bx_cpu_time + (failureReport ? failureReport->msw_Bx_cpu_time : 0.0);
+            t_gpu = msw_Bx_gpu_time + (failureReport ? failureReport->msw_Bx_gpu_time : 0.0);
+            os << fmt::format("     v=Bx:             {:.5f} s/ {:.5f} s", t_cpu, t_gpu);
+            if (failureReport){
+                os << fmt::format(" (Wasted: {:.5f}/{:.5f} s; {:2.1f}/{:2.1f} %)",
+                                  failureReport->msw_Bx_cpu_time,
+                                  failureReport->msw_Bx_gpu_time,
+                                  100*failureReport->msw_Bx_cpu_time/noZero(t_cpu),
+                                  100*failureReport->msw_Bx_gpu_time/noZero(t_gpu));
+            }
             os << std::endl;
-            os << fmt::format("     Dz=v:             {:.5f} s/ {:.5f} s", ctime_welllsD, ctime_gpulsD);
+            t_cpu = msw_lsD_cpu_time + (failureReport ? failureReport->msw_lsD_cpu_time : 0.0);
+            t_gpu = msw_lsD_gpu_time + (failureReport ? failureReport->msw_lsD_gpu_time : 0.0);
+            os << fmt::format("     Dz=v:             {:.5f} s/ {:.5f} s", msw_lsD_cpu_time, msw_lsD_gpu_time);
+            if (failureReport){
+                os << fmt::format(" (Wasted: {:.5f}/{:.5f} s; {:2.1f}/{:2.1f} %)",
+                                  failureReport->msw_lsD_cpu_time,
+                                  failureReport->msw_lsD_gpu_time,
+                                  100*failureReport->msw_lsD_cpu_time/noZero(t_cpu),
+                                  100*failureReport->msw_lsD_gpu_time/noZero(t_gpu));
+            }
             os << std::endl;
-            os << fmt::format("     y=y-Cz:           {:.5f} s/ {:.5f} s", ctime_wellCz, ctime_gpuCz);
+            t_cpu = msw_Cz_cpu_time + (failureReport ? failureReport->msw_Cz_cpu_time : 0.0);
+            t_gpu = msw_Cz_gpu_time + (failureReport ? failureReport->msw_Cz_gpu_time : 0.0);
+            os << fmt::format("     y=y-Cz:           {:.5f} s/ {:.5f} s", msw_Cz_cpu_time, msw_Cz_gpu_time);
+            if (failureReport){
+                os << fmt::format(" (Wasted: {:.5f}/{:.5f} s; {:2.1f}/{:2.1f} %)",
+                                  failureReport->msw_Cz_cpu_time,
+                                  failureReport->msw_Cz_gpu_time,
+                                  100*failureReport->msw_Cz_cpu_time/noZero(t_cpu),
+                                  100*failureReport->msw_Cz_gpu_time/noZero(t_gpu));
+            }
             os << std::endl;
-            os << fmt::format("  Synchronization:          {:.5f} s", ctime_syncafter);
+            os << fmt::format("     Miscellaneous:    {:.5f} s", msw_misc_time + (failureReport ? failureReport->msw_misc_time : 0.0));
+            os << std::endl;
+            os << fmt::format("  Synchronization:          {:.5f} s", msw_sync2_time + (failureReport ? failureReport->msw_sync2_time : 0.0));
             os << std::endl;
 
         }

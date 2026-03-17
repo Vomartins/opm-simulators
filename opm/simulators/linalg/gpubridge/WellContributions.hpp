@@ -28,6 +28,8 @@
 
 namespace Opm {
 
+struct SimulatorReportSingle;
+
 template<class Scalar> class MultisegmentWellContribution;
 
 /// This class serves to eliminate the need to include the WellContributions into the matrix (with --matrix-add-well-contributions=true) for the cusparseSolver or openclSolver.
@@ -74,6 +76,8 @@ protected:
     std::vector<unsigned int> val_pointers;    // val_pointers[wellID] == index of first block for this well in Ccols and Bcols
 
     std::vector<std::unique_ptr<MultisegmentWellContribution<Scalar>>> multisegments;
+
+    SimulatorReportSingle* report_ptr_ = nullptr;
 
 public:
     unsigned int getNumWells(){
@@ -130,6 +134,11 @@ public:
                                          UMFPackIndex* DcolPointers,
                                          UMFPackIndex* DrowIndices,
                                          std::vector<Scalar>& Cvalues);
+
+    void setSimulatorReportPointer(SimulatorReportSingle* report) { report_ptr_ = report; }
+
+    SimulatorReportSingle* simulatorReportPointer() const { return report_ptr_; }
+
 protected:
     //! \brief API specific allocation.
     virtual void APIalloc() {}

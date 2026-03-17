@@ -116,13 +116,13 @@ MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
     Drows(DrowIndices, DrowIndices + DnumBlocks * dim_wells * dim_wells),
     Brows(std::move(BrowPointers))
 {
-    // hipEventCreate(&startOp1);
-    // hipEventCreate(&stopOp1_startOp2);
-    // hipEventCreate(&stopOp2_startOp3);
-    // hipEventCreate(&stopOp3);
-    // hipEventCreate(&startDataTrans);
-    // hipEventCreate(&stopDataTrans_startLU);
-    // hipEventCreate(&stopLU);
+    HIP_CALL(hipEventCreate(&startOp1));
+    HIP_CALL(hipEventCreate(&stopOp1_startOp2));
+    HIP_CALL(hipEventCreate(&stopOp2_startOp3));
+    HIP_CALL(hipEventCreate(&stopOp3));
+    HIP_CALL(hipEventCreate(&startDataTrans));
+    HIP_CALL(hipEventCreate(&stopDataTrans_startLU));
+    HIP_CALL(hipEventCreate(&stopLU));
 
     rocM = size(Dcols)-1;
     rocN = rocM;
@@ -153,13 +153,13 @@ MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
     alloc_timer.stop();
     ctime_alloc += alloc_timer.lastElapsed();
 
-    // hipEventRecord(startDataTrans, 0);
+    hipEventRecord(startDataTrans, 0);
     Dune::Timer dataTrans_timer;
     dataTrans_timer.start();
     matricesToDevice();
     dataTrans_timer.stop();
     ctime_datatransD += dataTrans_timer.lastElapsed();
-    // hipEventRecord(stopDataTrans_startLU, 0);
+    hipEventRecord(stopDataTrans_startLU, 0);
 
     Dune::Timer LU_timer;
     LU_timer.start();
@@ -167,15 +167,15 @@ MultisegmentWellContribution(unsigned int dim_, unsigned int dim_wells_,
     ROCSOLVER_CALL(rocsolver_dgetrf(handle, rocM, rocN, d_Dmatrix, lda, ipiv, info));
     LU_timer.stop();
     ctime_wellLU += LU_timer.lastElapsed();
-    // hipEventRecord(stopLU, 0);
+    hipEventRecord(stopLU, 0);
 
-    // hipEventSynchronize(stopLU);
+    hipEventSynchronize(stopLU);
 
-    // hipEventElapsedTime(&time_datatrans, startDataTrans, stopDataTrans_startLU);
-    // hipEventElapsedTime(&time_lu, stopDataTrans_startLU, stopLU);
+    hipEventElapsedTime(&time_datatrans, startDataTrans, stopDataTrans_startLU);
+    hipEventElapsedTime(&time_lu, stopDataTrans_startLU, stopLU);
 
-    // ctime_gpudatatransD += time_datatrans/1000;
-    // ctime_gpuLU += time_lu/1000;
+    ctime_gpudatatransD += time_datatrans/1000;
+    ctime_gpuLU += time_lu/1000;
 
     B_M = Brows_.size() - 1;
     B_N = *std::max_element(Bcols_.begin(), Bcols_.end()) + 1;
@@ -316,50 +316,65 @@ void MultisegmentWellContribution<Scalar>::rocsparseCz(double* vals,
 // h_x and h_y reside on host
 // y -= (C^T * (D^-1 * (B * x)))
 template<class Scalar>
-void MultisegmentWellContribution<Scalar>::apply(double *d_x, double *d_y)
+void MultisegmentWellContribution<Scalar>::apply(double *d_x, double *d_y, Opm::SimulatorReportSingle* report_ptr)
 {
+    Dune::Timer misc_timer;
+    misc_timer.start();
     OPM_TIMEBLOCK(apply);
     HIP_CALL(hipMemset(d_z, 0.0, ldb*Nrhs*sizeof(double)));
+    misc_timer.stop();
+    if (report_ptr) {
+        report_ptr->msw_misc_time += misc_timer.lastElapsed();
+    }
 
-    // hipEventRecord(startOp1, 0);
+    HIP_CALL(hipEventRecord(startOp1, 0));
     Dune::Timer contribsCalc_timer;
     contribsCalc_timer.start();
     /**
     * d_v = d_B * d_x
     */
     rocsparseBx(d_Bvals, d_Bcols, d_Brows, d_x, d_z);
+    // HIP_CALL(hipDeviceSynchronize());
     contribsCalc_timer.stop();
-    ctime_wellBx += contribsCalc_timer.lastElapsed();
-    // hipEventRecord(stopOp1_startOp2, 0);
+    if (report_ptr) {
+        report_ptr->msw_Bx_cpu_time += contribsCalc_timer.lastElapsed();
+    }
+    HIP_CALL(hipEventRecord(stopOp1_startOp2, 0));
     contribsCalc_timer.start();
     /**
     * d_D * d_z = d_v
     * d_z <- d_v
     */
     ROCSOLVER_CALL(rocsolver_dgetrs(handle, operation, rocN, Nrhs, d_Dmatrix, lda, ipiv, d_z, ldb));
-
     // HIP_CALL(hipDeviceSynchronize());
     contribsCalc_timer.stop();
-    ctime_welllsD += contribsCalc_timer.lastElapsed();
-    // hipEventRecord(stopOp2_startOp3, 0);
+    if (report_ptr) {
+        report_ptr->msw_lsD_cpu_time += contribsCalc_timer.lastElapsed();
+    }
+    HIP_CALL(hipEventRecord(stopOp2_startOp3, 0));
     contribsCalc_timer.start();
     /**
     * d_y = d_y - d_C * d_z
     */
     rocsparseCz(d_Cvals, d_Ccols, d_Crows, d_z, d_y);
+    // HIP_CALL(hipDeviceSynchronize());
     contribsCalc_timer.stop();
-    ctime_wellCz += contribsCalc_timer.lastElapsed();
-    // hipEventRecord(stopOp3, 0);
+    if (report_ptr) {
+        report_ptr->msw_Cz_cpu_time += contribsCalc_timer.lastElapsed();
+    }
+    HIP_CALL(hipEventRecord(stopOp3, 0));
 
-    // hipEventSynchronize(stopOp3);
+    HIP_CALL(hipEventSynchronize(stopOp3));
 
-    // hipEventElapsedTime(&time_op1, startOp1, stopOp1_startOp2);
-    // hipEventElapsedTime(&time_op2, stopOp1_startOp2, stopOp2_startOp3);
-    // hipEventElapsedTime(&time_op3, stopOp2_startOp3, stopOp3);
+    HIP_CALL(hipEventElapsedTime(&time_op1, startOp1, stopOp1_startOp2));
+    HIP_CALL(hipEventElapsedTime(&time_op2, stopOp1_startOp2, stopOp2_startOp3));
+    HIP_CALL(hipEventElapsedTime(&time_op3, stopOp2_startOp3, stopOp3));
 
-    // ctime_gpuBx += time_op1/1000;
-    // ctime_gpulsD += time_op2/1000;
-    // ctime_gpuCz += time_op3/1000;
+    if (report_ptr) {
+        report_ptr->msw_Bx_gpu_time += time_op1/1000;
+        report_ptr->msw_lsD_gpu_time += time_op2/1000;
+        report_ptr->msw_Cz_gpu_time += time_op3/1000;
+    }
 }
 
 template<class Scalar>
