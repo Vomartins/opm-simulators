@@ -30,6 +30,7 @@
 #include <opm/simulators/linalg/gpuistl_hip/ISTLSolverGPUISTL.hpp>
 #elif HAVE_CUDA
 #include <opm/simulators/linalg/gpuistl/ISTLSolverGPUISTL.hpp>
+#include <opm/simulators/linalg/gpusystem/ISTLSolverGPUSystem.hpp>
 #endif
 
 #include <opm/simulators/linalg/system/ISTLSolverSystem.hpp>
@@ -127,9 +128,9 @@ public:
         istlSolver_->setMatrix(M);
     }
 
-    bool solve(Vector& x) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr) override
     {
-        return istlSolver_->solve(x);
+        return istlSolver_->solve(x, report_ptr);
     }
 
     int iterations() const override
@@ -166,21 +167,32 @@ private:
         }
         if (useSystemCpr) {
             using Indices = GetPropType<TypeTag, Properties::Indices>;
-            const auto backend = Parameters::linearSolverAcceleratorTypeFromCLI();
-            if (backend != Parameters::LinearSolverAcceleratorType::CPU) {
-                OPM_THROW(std::invalid_argument,
-                          "The system_cpr preconditioner currently only "
-                          "supports --linear-solver-accelerator=cpu");
-            }
             // System solver types are hardcoded for 3-equation blackoil (see SystemTypes.hpp).
-            if constexpr (Indices::numEq == 3) {
-                istlSolver_ = std::make_unique<ISTLSolverSystem<TypeTag>>(
-                    simulator, std::forward<Args>(args)...);
-            } else {
+            if constexpr (Indices::numEq != 3) {
                 OPM_THROW(std::invalid_argument,
                           "The system_cpr preconditioner is only supported for "
                           "standard 3-phase blackoil (3 equations). This model has " +
                               std::to_string(Indices::numEq) + " equations.");
+            } else {
+                const auto backend = Parameters::linearSolverAcceleratorTypeFromCLI();
+                if (backend == Parameters::LinearSolverAcceleratorType::CPU) {
+                    istlSolver_ = std::make_unique<ISTLSolverSystem<TypeTag>>(
+                        simulator, std::forward<Args>(args)...);
+                } else if (backend == Parameters::LinearSolverAcceleratorType::GPU) {
+#if HAVE_CUDA
+                    istlSolver_ = std::make_unique<gpusystem::ISTLSolverGPUSystem<TypeTag>>(
+                        simulator, std::forward<Args>(args)...);
+#else
+                    OPM_THROW(std::invalid_argument,
+                              "The GPU system solver (--use-system-solver=true "
+                              "--linear-solver-accelerator=gpu) requires CUDA or HIP support. "
+                              "Recompile with CUDA/HIP enabled.");
+#endif
+                } else {
+                    OPM_THROW(std::invalid_argument,
+                              fmt::format(fmt::runtime("Unknown backend for --use-system-solver=true: {}"),
+                                          Parameters::toString(backend)));
+                }
             }
             checkSystemCPRMatrixAddWell(Parameters::Get<Parameters::MatrixAddWellContributions>());
             return;

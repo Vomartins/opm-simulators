@@ -24,6 +24,7 @@
 #include <opm/simulators/linalg/AbstractISTLSolver.hpp>
 #include <opm/simulators/linalg/getQuasiImpesWeights.hpp>
 #include <opm/simulators/linalg/ISTLSolver.hpp>
+#include <opm/simulators/timestepping/SimulatorReport.hpp>
 
 #if USE_HIP
 #include <opm/simulators/linalg/gpuistl_hip/GpuSparseMatrixWrapper.hpp>
@@ -124,7 +125,11 @@ public:
         m_propertyTree = setupPropertyTree(m_parameters,
                                            Parameters::IsSet<Parameters::LinearSolverMaxIter>(),
                                            Parameters::IsSet<Parameters::LinearSolverReduction>());
-        if (!Parameters::Get<Parameters::MatrixAddWellContributions>()) {
+        // When UseSystemSolver=true, the well matrices are handled by the system
+        // solver (ISTLSolverGPUSystem) and must NOT be added to the reservoir matrix.
+        // For the standard GPU solver, well contributions must be folded in.
+        if (!Parameters::Get<Parameters::MatrixAddWellContributions>()
+            && !Parameters::Get<Parameters::UseSystemSolver>()) {
             OPM_THROW(std::logic_error, "Well operators are currently not supported for the GPU backend. "
             "Use --matrix-add-well-contributions=true to add well contributions to the matrix instead.");
         }
@@ -255,7 +260,7 @@ public:
      *
      * Before this function is called, prepare() should have been called with a valid matrix and right-hand side vector.
      */
-    bool solve(Vector& x) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* /*report_ptr*/ = nullptr) override
     {
         // TODO: Write matrix to disk if needed
         Dune::InverseOperatorResult result;

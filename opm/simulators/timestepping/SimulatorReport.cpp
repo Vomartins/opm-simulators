@@ -36,7 +36,7 @@ namespace Opm
                                      7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
                                      13, 14, 15, 16, 17, 18,
                                      true, false, false, 19, 20.0, 21.0,
-                                     22, 23, 24, 25, 26, 27, 28, 29};
+                                     22, 23, 24, 25, 26, 27, 28, 29, 30.0, 31.0, 32.0, 33.0, 34.0};
     }
 
     bool SimulatorReportSingle::operator==(const SimulatorReportSingle& rhs) const
@@ -72,7 +72,12 @@ namespace Opm
                this->converged_domains == rhs.converged_domains &&
                this->unconverged_domains == rhs.unconverged_domains &&
                this->accepted_unconverged_domains == rhs.accepted_unconverged_domains &&
-               this->skipped_domains == rhs.skipped_domains;
+               this->skipped_domains == rhs.skipped_domains &&
+               this->sys_stage1_time == rhs.sys_stage1_time &&
+               this->sys_stage2_time == rhs.sys_stage2_time &&
+               this->sys_stage2_well_time == rhs.sys_stage2_well_time &&
+               this->sys_stage2_res_time == rhs.sys_stage2_res_time &&
+               this->sys_stage3_time == rhs.sys_stage3_time;
     }
 
     void SimulatorReportSingle::operator+=(const SimulatorReportSingle& sr)
@@ -102,6 +107,12 @@ namespace Opm
         unconverged_domains += sr.unconverged_domains;
         accepted_unconverged_domains += sr.accepted_unconverged_domains;
         skipped_domains += sr.skipped_domains;
+
+        sys_stage1_time += sr.sys_stage1_time;
+        sys_stage2_time += sr.sys_stage2_time;
+        sys_stage2_well_time += sr.sys_stage2_well_time;
+        sys_stage2_res_time += sr.sys_stage2_res_time;
+        sys_stage3_time += sr.sys_stage3_time;
         // It makes no sense adding time points. Therefore, do not
         // overwrite the value of global_time which gets set in
         // NonlinearSolver.hpp by the line:
@@ -177,6 +188,62 @@ namespace Opm
                                 100*failureReport->linear_solve_setup_time/noZero(t));
             }
             os << std::endl;
+
+            if (sys_stage1_time > 0.0){
+                t = sys_stage1_time + (failureReport ? failureReport->sys_stage1_time : 0.0);
+                os << fmt::format("    Stage 1 time:          {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_stage1_time,
+                                    100*failureReport->sys_stage1_time/noZero(t));
+                }
+                os << std::endl;
+            }
+
+            if (sys_stage2_time > 0.0){
+                t = sys_stage2_time + (failureReport ? failureReport->sys_stage2_time : 0.0);
+                os << fmt::format("    Stage 2 time:          {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_stage2_time,
+                                    100*failureReport->sys_stage2_time/noZero(t));
+                }
+                os << std::endl;
+            }
+
+            if (sys_stage2_well_time > 0.0){
+                os << fmt::format("    Stage 2 time:          ") << std::endl;
+                t = sys_stage2_well_time + (failureReport ? failureReport->sys_stage2_well_time : 0.0);
+                os << fmt::format("        well time:         {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_stage2_well_time,
+                                    100*failureReport->sys_stage2_well_time/noZero(t));
+                }
+                os << std::endl;
+            }
+
+            if (sys_stage2_res_time > 0.0){
+                t = sys_stage2_res_time + (failureReport ? failureReport->sys_stage2_res_time : 0.0);
+                os << fmt::format("        res time:          {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_stage2_res_time,
+                                    100*failureReport->sys_stage2_res_time/noZero(t));
+                }
+                os << std::endl;
+            }
+
+            if (sys_stage3_time > 0.0) {
+                t = sys_stage3_time + (failureReport ? failureReport->sys_stage3_time : 0.0);
+                os << fmt::format("    Stage 3 time:          {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_stage3_time,
+                                    100*failureReport->sys_stage3_time/noZero(t));
+                }
+                os << std::endl;
+            }
 
             if (local_solve_time > 0.0) {
                 t = local_solve_time + (failureReport ? failureReport->local_solve_time : 0.0);

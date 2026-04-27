@@ -22,6 +22,7 @@
 #include <opm/simulators/linalg/PreconditionerFactory_impl.hpp>
 #include <opm/simulators/linalg/gpuistl/GpuSparseMatrixWrapper.hpp>
 #include <opm/simulators/linalg/gpuistl/GpuVector.hpp>
+#include <opm/simulators/linalg/gpusystem/GpuSystemPreconditionerFactory.hpp>
 #if HAVE_MPI
 #include <opm/simulators/linalg/gpuistl/GpuOwnerOverlapCopy.hpp>
 #endif
@@ -37,6 +38,30 @@ template class ::Opm::PreconditionerFactory<Dune::MatrixAdapter<::Opm::gpuistl::
 template class ::Opm::PreconditionerFactory<Dune::MatrixAdapter<::Opm::gpuistl::GpuSparseMatrixWrapper<float>,
                                                                 ::Opm::gpuistl::GpuVector<float>,
                                                                 ::Opm::gpuistl::GpuVector<float>>,
+                                            ::Opm::CommSeq>;
+#endif
+
+// GPU system (coupled reservoir+well) operator.
+//
+// Suppress implicit instantiation of GpuSystemPreconditioner<T> in this GPU
+// translation unit.  Its methods call FlexibleSolverWrapper, whose definitions
+// live in FlexibleSolverWrapper.cpp (compiled separately).  Without the extern
+// declaration the GPU compiler would instantiate GpuSystemPreconditioner<T>
+// here, emitting unsatisfied references to FlexibleSolverWrapper.  The explicit
+// instantiation is provided by GpuSystemPreconditioner.cpp (plain C++), which
+// resolves both sets of references through the same libopmsimulators archive.
+namespace Opm::gpusystem {
+    extern template class GpuSystemPreconditioner<double>;
+#if FLOW_INSTANTIATE_FLOAT
+    extern template class GpuSystemPreconditioner<float>;
+#endif
+} // namespace Opm::gpusystem
+
+template class ::Opm::PreconditionerFactory<Opm::gpusystem::GpuSystemSeqOpT<double>,
+                                            ::Opm::CommSeq>;
+
+#if FLOW_INSTANTIATE_FLOAT
+template class ::Opm::PreconditionerFactory<Opm::gpusystem::GpuSystemSeqOpT<float>,
                                             ::Opm::CommSeq>;
 #endif
 

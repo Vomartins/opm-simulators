@@ -90,14 +90,18 @@ public:
         prepareSystemSolver();
     }
 
-    bool solve(Vector& x) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr) override
     {
         OPM_TIMEBLOCK(istlSolverSolve);
         ++this->solveCount_;
 
+        using SysPrecSeq = SystemPreconditioner<Scalar, SeqResOperatorT<Scalar>>;
+        if (auto* p = dynamic_cast<SysPrecSeq*>(sysPrecond_)) {
+            p->setSimulatorReportPointer(report_ptr);
+        }
+
         const std::size_t numRes = Parent::matrix_->N();
         const std::size_t numWell = cachedWellStructure_.totalWellBlocks;
-
         sysX_[_0].resize(numRes);
         sysX_[_0] = 0.0;
         sysX_[_1].resize(numWell);

@@ -339,6 +339,13 @@ if(CUDA_FOUND OR hip_FOUND)
   ADD_CUDA_OR_HIP_FILE(MAIN_SOURCE_FILES opm/simulators/linalg FlexibleSolver_gpu_instantiate.cpp)
   ADD_CUDA_OR_HIP_FILE(MAIN_SOURCE_FILES opm/simulators/linalg PreconditionerFactory_gpu_instantiate.cpp)
 
+  # GPU system solver (coupled reservoir+well) — plain C++ files that use GPU types.
+  # These files contain no direct CUDA/HIP API calls; USE_HIP guards in the headers
+  # select the right gpuistl_hip/ includes, so no hipification is needed.
+  if(CUDA_FOUND OR CONVERT_CUDA_TO_HIP)
+    list(APPEND MAIN_SOURCE_FILES
+      opm/simulators/linalg/gpusystem/GpuSystemPreconditioner.cpp)
+  endif()
 
   # HEADERS
   ADD_CUDA_OR_HIP_FILE(PUBLIC_HEADER_FILES opm/simulators/linalg detail/autotuner.hpp)
@@ -409,6 +416,15 @@ if(CUDA_FOUND OR hip_FOUND)
     ADD_CUDA_OR_HIP_FILE(PUBLIC_HEADER_FILES opm/simulators/linalg GpuSender.hpp)
     ADD_CUDA_OR_HIP_FILE(PUBLIC_HEADER_FILES opm/simulators/linalg GpuObliviousMPISender.hpp)
     ADD_CUDA_OR_HIP_FILE(PUBLIC_HEADER_FILES opm/simulators/linalg GpuAwareMPISender.hpp)
+  endif()
+
+  # GPU system solver headers (coupled reservoir+well)
+  if(CUDA_FOUND OR CONVERT_CUDA_TO_HIP)
+    list(APPEND PUBLIC_HEADER_FILES
+      opm/simulators/linalg/gpusystem/GpuSystemTypes.hpp
+      opm/simulators/linalg/gpusystem/GpuSystemPreconditioner.hpp
+      opm/simulators/linalg/gpusystem/GpuSystemPreconditionerFactory.hpp
+      opm/simulators/linalg/gpusystem/ISTLSolverGPUSystem.hpp)
   endif()
 endif()
 

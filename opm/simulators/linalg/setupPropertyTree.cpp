@@ -243,6 +243,17 @@ setupPropertyTree(FlowLinearSolverParameters p, // Note: copying the parameters 
         }
     }
 
+    // GPU system CPR configuration (GPU-accelerated coupled reservoir-well solver).
+    if (conf == "gpu_system_cpr") {
+        if (!linearSolverMaxIterSet) {
+            p.linear_solver_maxiter_ = 20;
+        }
+        if (!linearSolverReductionSet) {
+            p.linear_solver_reduction_ = 0.005;
+        }
+        return setupGpuSystemCPR(conf, p);
+    }
+
     if (conf == "amg") {
         return setupAMG(conf, p);
     }
@@ -287,7 +298,7 @@ setupPropertyTree(FlowLinearSolverParameters p, // Note: copying the parameters 
     else {
         OPM_THROW(std::invalid_argument,
                 conf + " is not a valid setting for --linear-solver-configuration."
-                " Please use ilu0, dilu, isai, cpr, cprw, cpr_trueimpes, cpr_quasiimpes, cpr_trueimpesanalytic, or system_cpr");
+                " Please use ilu0, dilu, isai, cpr, cprw, cpr_trueimpes, cpr_quasiimpes, cpr_trueimpesanalytic, system_cpr, or gpu_system_cpr");
     }
 
 
@@ -567,6 +578,63 @@ void checkSystemCPRMatrixAddWell(bool matrixAddWellContributions)
                   "--matrix-add-well-contributions=true is incompatible with "
                   "--linear-solver=system_cpr because the system CPR implementation assumes that well contributions are not added to the matrix.");
     }
+}
+
+
+PropertyTree
+setupGpuSystemCPR([[maybe_unused]] const std::string& conf, const FlowLinearSolverParameters& p)
+{
+    using namespace std::string_literals;
+    PropertyTree prm;
+
+    // Outer solver (runs over the coupled GPU system vector).
+    prm.put("maxiter", p.linear_solver_maxiter_);
+    prm.put("tol", p.linear_solver_reduction_);
+    prm.put("verbosity", p.linear_solver_verbosity_);
+    prm.put("solver", getSolverString(p));
+
+    // Top-level preconditioner: gpu_system_cpr
+    prm.put("preconditioner.type", "gpu_system_cpr"s);
+
+    // --- Reservoir smoother (GPU DILU) ---
+    prm.put("preconditioner.reservoir_smoother.maxiter", 1);
+    prm.put("preconditioner.reservoir_smoother.tol", p.linear_solver_reduction_);
+    prm.put("preconditioner.reservoir_smoother.verbosity", 0);
+    prm.put("preconditioner.reservoir_smoother.solver", "loopsolver"s);
+    prm.put("preconditioner.reservoir_smoother.preconditioner.type", "dilu"s);
+    prm.put("preconditioner.reservoir_smoother.preconditioner.relaxation", 1.0);
+
+    // --- Reservoir CPR solver (GPU CPR with GPU DILU fine smoother + AMG coarse solver) ---
+    prm.put("preconditioner.reservoir_solver.maxiter", 1);
+    prm.put("preconditioner.reservoir_solver.tol", p.linear_solver_reduction_);
+    prm.put("preconditioner.reservoir_solver.verbosity", 0);
+    prm.put("preconditioner.reservoir_solver.solver", "loopsolver"s);
+    prm.put("preconditioner.reservoir_solver.preconditioner.type", "cpr"s);
+    prm.put("preconditioner.reservoir_solver.preconditioner.relaxation", 1.0);
+    prm.put("preconditioner.reservoir_solver.preconditioner.use_well_weights", "false"s);
+    prm.put("preconditioner.reservoir_solver.preconditioner.add_wells", "false"s);
+    prm.put("preconditioner.reservoir_solver.preconditioner.weight_type", "trueimpes"s);
+    prm.put("preconditioner.reservoir_solver.preconditioner.pre_smooth", 0);
+    prm.put("preconditioner.reservoir_solver.preconditioner.post_smooth", 0);
+    prm.put("preconditioner.reservoir_solver.preconditioner.finesmoother.type", "dilu"s);
+    prm.put("preconditioner.reservoir_solver.preconditioner.finesmoother.relaxation", 1.0);
+    prm.put("preconditioner.reservoir_solver.preconditioner.verbosity", 0);
+    prm.put("preconditioner.reservoir_solver.preconditioner.coarsesolver.maxiter", 1);
+    prm.put("preconditioner.reservoir_solver.preconditioner.coarsesolver.tol", 1e-1);
+    prm.put("preconditioner.reservoir_solver.preconditioner.coarsesolver.solver", "loopsolver"s);
+    prm.put("preconditioner.reservoir_solver.preconditioner.coarsesolver.verbosity", 0);
+    prm.put("preconditioner.reservoir_solver.preconditioner.coarsesolver.preconditioner.type", "amg"s);
+    setupDuneAMG(prm, "preconditioner.reservoir_solver.preconditioner.coarsesolver.preconditioner.");
+
+    // --- Well solver (CPU UMFPACK — unchanged from CPU system_cpr) ---
+    prm.put("preconditioner.well_solver.maxiter", 1);
+    prm.put("preconditioner.well_solver.tol", p.linear_solver_reduction_);
+    prm.put("preconditioner.well_solver.verbosity", 0);
+    prm.put("preconditioner.well_solver.solver", "umfpack"s);
+    prm.put("preconditioner.well_solver.preconditioner.type", "paroverilu0"s);
+    prm.put("preconditioner.well_solver.preconditioner.relaxation", 1.0);
+
+    return prm;
 }
 
 

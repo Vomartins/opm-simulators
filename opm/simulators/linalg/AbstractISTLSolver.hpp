@@ -147,7 +147,7 @@ public:
      * - setResidual(Vector& b) or setResidual(const Vector& b)
      * - setMatrix(const SparseMatrixAdapter& M)
      */
-    virtual bool solve(Vector& x) = 0;
+    virtual bool solve(Vector& x,  Opm::SimulatorReportSingle* report_ptr) = 0;
 
     /**
      * \brief Get the number of iterations used in the last solve.

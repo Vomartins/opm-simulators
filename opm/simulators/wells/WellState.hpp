@@ -262,7 +262,7 @@ public:
     void stopWell(std::size_t well_index);
 
     /// The number of phases present.
-    constexpr int numPhases() const
+    int numPhases() const
     {
         return phaseUsageInfo_.numActivePhases();
     }

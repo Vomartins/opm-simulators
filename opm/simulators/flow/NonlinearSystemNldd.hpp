@@ -676,7 +676,7 @@ private:
         linsolver.prepare(jac, res);
         setup_time = perfTimer.stop();
         linsolver.setResidual(res);
-        linsolver.solve(x);
+        linsolver.solve(x, nullptr);
 
         Details::setGlobal(x, domain.cells, global_x);
     }

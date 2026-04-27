@@ -232,10 +232,10 @@ public:
         // matrix_ = &M.istlMatrix(); // Must be handled in prepare() instead.
     }
 
-    bool solve(Vector& x) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr = nullptr) override
     {
         if (!gpuBridge_) {
-            return ParentType::solve(x);
+            return ParentType::solve(x, report_ptr);
         }
 
         OPM_TIMEBLOCK(istlSolverGpuBridgeSolve);
