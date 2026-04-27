@@ -70,6 +70,12 @@ namespace Opm
         int accepted_unconverged_domains = 0;
         int skipped_domains = 0;
 
+        double sys_stage1_time = 0.0;
+        double sys_stage2_time = 0.0;
+        double sys_stage2_well_time = 0.0;
+        double sys_stage2_res_time = 0.0;
+        double sys_stage3_time = 0.0;
+
         static SimulatorReportSingle serializationTestObject();
 
         bool operator==(const SimulatorReportSingle&) const;
@@ -115,6 +121,11 @@ namespace Opm
             serializer(unconverged_domains);
             serializer(accepted_unconverged_domains);
             serializer(skipped_domains);
+            serializer(sys_stage1_time);
+            serializer(sys_stage2_time);
+            serializer(sys_stage2_well_time);
+            serializer(sys_stage2_res_time);
+            serializer(sys_stage3_time);
         }
     };
 

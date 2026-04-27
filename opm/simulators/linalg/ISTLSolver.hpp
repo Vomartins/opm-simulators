@@ -415,7 +415,7 @@ std::unique_ptr<Matrix> blockJacobiAdjacency(const Grid& grid,
             solveCount_ = 0;
         }
 
-        bool solve(Vector& x) override
+        bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr) override
         {
             OPM_TIMEBLOCK(istlSolverSolve);
             ++solveCount_;

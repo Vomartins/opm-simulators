@@ -321,7 +321,7 @@ public:
 
     bool isReservoirCouplingSlaveGroup(const Group& group) const { return rescoup_.isSlaveGroup(group.name()); }
 
-    constexpr int numPhases() const {
+    int numPhases() const {
         return this->wellState().numPhases();
     }
 

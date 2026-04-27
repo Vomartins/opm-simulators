@@ -190,7 +190,7 @@ public:
 
     /// Solve the Jacobian system Jx = r where J is the Jacobian and
     /// r is the residual.
-    void solveJacobianSystem(BVector& x);
+    void solveJacobianSystem(BVector& x, Opm::SimulatorReportSingle* report_ptr);
 
     /// Apply an update to the primary variables.
     void updateSolution(const BVector& dx);
