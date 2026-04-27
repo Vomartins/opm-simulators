@@ -232,18 +232,14 @@ namespace Dune
                                                                                   maxiter, // maximum number of iterations
                                                                                   verbosity);
         } else if (solver_type == "flexgmres") {
-            if constexpr (Opm::is_gpu_operator_v<Operator>) {
-                OPM_THROW(std::invalid_argument, "flexgmres solver not supported for GPU operators.");
-            } else {
-                int restart = prm.get<int>("restart", 15);
-                linsolver_ = std::make_shared<Dune::RestartedFlexibleGMResSolver<VectorType>>(*linearoperator_for_solver_,
-                                                                                        *scalarproduct_,
-                                                                                        *preconditioner_,
-                                                                                        tol,// desired residual reduction factor
-                                                                                        restart,
-                                                                                        maxiter, // maximum number of iterations
-                                                                                        verbosity);
-            }
+            int restart = prm.get<int>("restart", 15);
+            linsolver_ = std::make_shared<Dune::RestartedFlexibleGMResSolver<VectorType>>(*linearoperator_for_solver_,
+                                                                                    *scalarproduct_,
+                                                                                    *preconditioner_,
+                                                                                    tol,// desired residual reduction factor
+                                                                                    restart,
+                                                                                    maxiter, // maximum number of iterations
+                                                                                    verbosity);
         } else {
             if constexpr (!Opm::is_gpu_operator_v<Operator> && !Opm::detail::is_multi_type_block_vector_v<VectorType>) {
 #if HAVE_SUITESPARSE_UMFPACK

@@ -26,6 +26,8 @@
 #include <opm/simulators/linalg/gpuistl/detail/CuBlasHandle.hpp>
 #include <opm/simulators/linalg/gpuistl/detail/safe_conversion.hpp>
 #include <opm/simulators/linalg/gpuistl/detail/gpu_constants.hpp>
+#include <ostream>
+#include <typeinfo>
 #include <vector>
 #include <string>
 
@@ -528,6 +530,15 @@ private:
 
     void assertHasElements() const;
 };
+
+// Stream output for GpuVector — prints summary info (no device-to-host copy).
+// Required by Dune::RestartedFlexibleGMResSolver which streams w[i] on breakdown.
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, const GpuVector<T>& v)
+{
+    os << "GpuVector<" << typeid(T).name() << ">(size=" << v.dim() << ")";
+    return os;
+}
 
 } // namespace Opm::gpuistl
 

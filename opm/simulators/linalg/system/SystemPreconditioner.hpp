@@ -10,8 +10,13 @@
 #include <opm/simulators/linalg/PreconditionerWithUpdate.hpp>
 #include <opm/simulators/linalg/PropertyTree.hpp>
 
+#include <opm/simulators/timestepping/SimulatorReport.hpp>
+#include <dune/common/timer.hh>
+
 namespace Opm
 {
+
+struct SimulatorReportSingle;
 
 // Reservoir operator/comm types used as template arguments.
 template<typename Scalar>
@@ -45,6 +50,12 @@ public:
 
     static constexpr auto _0 = Dune::Indices::_0;
     static constexpr auto _1 = Dune::Indices::_1;
+
+    SimulatorReportSingle* report_ptr_ = nullptr;
+
+    void setSimulatorReportPointer(SimulatorReportSingle* report) { report_ptr_ = report; }
+
+    SimulatorReportSingle* simulatorReportPointer() const { return report_ptr_; }
 
     // Sequential constructor (enabled only for non-parallel specializations).
     template <bool P = isParallel, std::enable_if_t<!P, int> = 0>
@@ -111,6 +122,9 @@ public:
         resSol_ = 0.0;
         wSol_ = 0.0;
 
+        Dune::Timer stage_timer;
+
+        stage_timer.start();
         // Stage 1: Reservoir CPR solve
         {
             Dune::InverseOperatorResult res_result;
@@ -122,9 +136,15 @@ public:
             A.mmv(dresSol_, resRes_);
             C.mmv(dresSol_, wRes_);
         }
+        stage_timer.stop();
+        if (this->report_ptr_) {
+            this->report_ptr_->sys_stage1_time += stage_timer.lastElapsed();
+        }
 
+        // stage_timer.start();
         // Stage 2: Well solve + reservoir system smoothing
         {
+            stage_timer.start();
             Dune::InverseOperatorResult well_result;
             dwSol_ = 0.0;
             tmp_wRes_ = wRes_;
@@ -132,7 +152,12 @@ public:
             wSol_ += dwSol_;
             B.mmv(dwSol_, resRes_);
             D.mmv(dwSol_, wRes_);
+            stage_timer.stop();
+            if (this->report_ptr_) {
+                this->report_ptr_->sys_stage2_well_time += stage_timer.lastElapsed();
+            }
 
+            stage_timer.start();
             Dune::InverseOperatorResult res_result;
             dresSol_ = 0.0;
             tmp_resRes_ = resRes_;
@@ -140,8 +165,18 @@ public:
             resSmoother_->apply(dresSol_, tmp_resRes_, res_result);
             resSol_ += dresSol_;
             C.mmv(dresSol_, wRes_);
+            stage_timer.stop();
+            if (this->report_ptr_) {
+                this->report_ptr_->sys_stage2_res_time += stage_timer.lastElapsed();
+            }
         }
+        // stage_timer.stop();
+        // if (this->report_ptr_) {
+        //     this->report_ptr_->sys_stage2_time += stage_timer.lastElapsed();
+        // }
 
+
+        stage_timer.start();
         // Stage 3: Final well solve
         {
             Dune::InverseOperatorResult well_result;
@@ -149,6 +184,10 @@ public:
             tmp_wRes_ = wRes_;
             wellSolver_->apply(dwSol_, tmp_wRes_, well_result);
             wSol_ += dwSol_;
+        }
+        stage_timer.stop();
+        if (this->report_ptr_) {
+            this->report_ptr_->sys_stage3_time += stage_timer.lastElapsed();
         }
 
         syncResVector(resSol_);

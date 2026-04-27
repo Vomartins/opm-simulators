@@ -73,10 +73,17 @@ public:
         prepareSystemSolver();
     }
 
-    bool solve(Vector& x) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr) override
     {
         OPM_TIMEBLOCK(istlSolverSolve);
         ++this->solveCount_;
+
+        // sysPrecond_->setSimulatorReportPointer(report_ptr);
+
+        using SysPrecSeq = SystemPreconditioner<Scalar, SeqResOperatorT<Scalar>>;
+        if (auto* p = dynamic_cast<SysPrecSeq*>(sysPrecond_)) {
+            p->setSimulatorReportPointer(report_ptr);
+        }
 
         const size_t numRes = Parent::matrix_->N();
         sysX_[_0].resize(numRes);

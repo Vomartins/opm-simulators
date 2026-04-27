@@ -25,6 +25,14 @@
 #include <opm/simulators/linalg/gpuistl/GpuSparseMatrixWrapper.hpp>
 #include <opm/simulators/linalg/gpuistl/GpuVector.hpp>
 
+// GPU system solver (coupled reservoir+well) — outer Krylov solver and
+// reservoir FlexibleSolverWrapper instantiations live here rather than in
+// GpuSystemPreconditioner.cpp because FlexibleSolver_impl.hpp pulls in
+// umfpack.hh which requires domain_type from the matrix type, and
+// GpuSystemMatrixT does not provide it.  This CUDA/HIP translation unit
+// is exempt from that constraint.
+#include <opm/simulators/linalg/gpusystem/GpuSystemPreconditionerFactory.hpp>
+
 // NOTE: This is very rudimentary, and will be improved once we
 // incorporate MPI in the ISTLSolverGPUISTL class.
 template class ::Dune::FlexibleSolver<Dune::MatrixAdapter<::Opm::gpuistl::GpuSparseMatrixWrapper<double>,
@@ -35,6 +43,24 @@ template class ::Dune::FlexibleSolver<Dune::MatrixAdapter<::Opm::gpuistl::GpuSpa
 template class ::Dune::FlexibleSolver<Dune::MatrixAdapter<::Opm::gpuistl::GpuSparseMatrixWrapper<float>,
                                                           ::Opm::gpuistl::GpuVector<float>,
                                                           ::Opm::gpuistl::GpuVector<float>>>;
+#endif
+
+// Outer Krylov solver over the coupled (reservoir+well) GPU system vector.
+template class ::Dune::FlexibleSolver<Opm::gpusystem::GpuSystemSeqOpT<double>>;
+
+// GPU reservoir sub-solver wrapper used inside GpuSystemPreconditioner.
+template class Opm::gpuistl::detail::FlexibleSolverWrapper<
+    Opm::gpusystem::GpuRRMatrixT<double>,
+    Opm::gpuistl::GpuVector<double>,
+    Dune::Communication<int>>;
+
+#if FLOW_INSTANTIATE_FLOAT
+template class ::Dune::FlexibleSolver<Opm::gpusystem::GpuSystemSeqOpT<float>>;
+
+template class Opm::gpuistl::detail::FlexibleSolverWrapper<
+    Opm::gpusystem::GpuRRMatrixT<float>,
+    Opm::gpuistl::GpuVector<float>,
+    Dune::Communication<int>>;
 #endif
 
 #if HAVE_MPI
