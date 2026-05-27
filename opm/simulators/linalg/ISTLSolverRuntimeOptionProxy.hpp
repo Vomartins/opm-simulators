@@ -28,6 +28,7 @@
 
 #if USE_HIP
 #include <opm/simulators/linalg/gpuistl_hip/ISTLSolverGPUISTL.hpp>
+#include <opm/simulators/linalg/gpusystem/ISTLSolverGPUSystem.hpp>
 #elif HAVE_CUDA
 #include <opm/simulators/linalg/gpuistl/ISTLSolverGPUISTL.hpp>
 #include <opm/simulators/linalg/gpusystem/ISTLSolverGPUSystem.hpp>
@@ -175,7 +176,7 @@ private:
                     istlSolver_ = std::make_unique<ISTLSolverSystem<TypeTag>>(
                         simulator, std::forward<Args>(args)...);
                 } else if (backend == Parameters::LinearSolverAcceleratorType::GPU) {
-#if HAVE_CUDA
+#if HAVE_CUDA || USE_HIP
                     istlSolver_ = std::make_unique<gpusystem::ISTLSolverGPUSystem<TypeTag>>(
                         simulator, std::forward<Args>(args)...);
 #else
@@ -202,7 +203,7 @@ private:
             istlSolver_ = std::make_unique<ISTLSolver<TypeTag>>(simulator, std::forward<Args>(args)...);
 #endif
         }
-#if HAVE_CUDA
+#if HAVE_CUDA || USE_HIP
         else if (backend == Parameters::LinearSolverAcceleratorType::GPU) {
             istlSolver_ = std::make_unique<gpuistl::ISTLSolverGPUISTL<TypeTag>>(simulator, std::forward<Args>(args)...);
         }

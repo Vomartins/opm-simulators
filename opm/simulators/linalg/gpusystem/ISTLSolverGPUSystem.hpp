@@ -71,7 +71,7 @@ namespace Opm::gpusystem
 // GPU analogue of ISTLSolverSystem.  Runs the 3-stage GpuSystemPreconditioner
 // inside a Dune::FlexibleSolver over the coupled (res+well) GPU system.
 //
-// Derive from AbstractISTLSolver<TypeTag> directly; all GPU infrastructure
+// Derive from AbstractISTLSolver<SparseMatrixAdapter, Vector> directly; all GPU infrastructure
 // (comms, prm, weights) is owned here to avoid the private-member barrier
 // of ISTLSolverGPUISTL.
 //
@@ -80,7 +80,8 @@ namespace Opm::gpusystem
 //   - Sequential only (MPI parallel not yet supported for the coupled system)
 // --------------------------------------------------------------------------
 template<class TypeTag>
-class ISTLSolverGPUSystem : public AbstractISTLSolver<TypeTag>
+class ISTLSolverGPUSystem : public AbstractISTLSolver<GetPropType<TypeTag, Properties::SparseMatrixAdapter>,
+                                                       GetPropType<TypeTag, Properties::GlobalEqVector>>
 {
     // ------------------------------------------------------------------
     // Type aliases
@@ -265,12 +266,12 @@ public:
 
     int getSolveCount() const override { return solveCount_; }
 
-    std::optional<typename AbstractISTLSolver<TypeTag>::WellSolutionView>
+    std::optional<typename AbstractISTLSolver<SparseMatrixAdapter, Vector>::WellSolutionView>
     getWellSolution() const override
     {
         if (cpuWellSolution_.N() == 0 || wellDofOffsets_.empty())
             return std::nullopt;
-        return typename AbstractISTLSolver<TypeTag>::WellSolutionView{
+        return typename AbstractISTLSolver<SparseMatrixAdapter, Vector>::WellSolutionView{
             cpuWellSolution_, wellDofOffsets_};
     }
 
@@ -343,7 +344,7 @@ private:
     // ------------------------------------------------------------------
     bool checkConvergence(const Dune::InverseOperatorResult& result) const
     {
-        return AbstractISTLSolver<TypeTag>::checkConvergence(result, params_);
+        return AbstractISTLSolver<SparseMatrixAdapter, Vector>::checkConvergence(result, params_);
     }
 
     // ------------------------------------------------------------------
@@ -376,23 +377,24 @@ private:
         simulator_.problem().wellModel().addBCDMatrix(
             b_matrices, c_matrices, d_matrices, wcells, well_residuals);
 
-        WellMatrixMerger<Scalar> merger(M.N());
-        for (std::size_t i = 0; i < b_matrices.size(); ++i) {
-            merger.addWell(b_matrices[i], c_matrices[i], d_matrices[i],
-                           wcells[i], static_cast<int>(i),
-                           "Well" + std::to_string(i + 1), well_residuals[i]);
+        const WellMatrixMerger<Scalar> merger(
+            M.N(), b_matrices, c_matrices, d_matrices, wcells);
+
+        // Merge well residuals and build dof offsets (no longer done by merger).
+        mergeWellResiduals(well_residuals);
+
+        // Determine total well DOFs and whether a rebuild is needed.
+        std::size_t newWellDofs = 0;
+        for (const auto& d : d_matrices) {
+            newWellDofs += d.N();
         }
-        merger.finalize();
-
-        mergedWellResidual_ = std::move(merger.getMergedWellResidual());
-        wellDofOffsets_     = std::move(merger.getWellDofOffsets());
-
-        const std::size_t newWellDofs = merger.getMergedD().N();
         const bool needRebuild = !sysInitialized_ || (newWellDofs != cachedWellDofs_);
 
-        mergedB_ = std::move(merger.getMergedB());
-        mergedC_ = std::move(merger.getMergedC());
-        mergedD_ = std::move(merger.getMergedD());
+        if (needRebuild) {
+            merger.buildMatrices(mergedB_, mergedC_, mergedD_);
+        } else {
+            merger.updateValues(mergedB_, mergedC_, mergedD_);
+        }
         cachedWellDofs_ = newWellDofs;
 
         // 4. Upload well matrices to GPU.
@@ -423,6 +425,25 @@ private:
             sysInitialized_ = true;
         } else {
             sysPrecond_->update();
+        }
+    }
+
+    void mergeWellResiduals(const std::vector<WellVectorT<Scalar>>& wellResiduals)
+    {
+        int totalSize = 0;
+        wellDofOffsets_.clear();
+        wellDofOffsets_.push_back(0);
+        for (const auto& res : wellResiduals) {
+            totalSize += res.N();
+            wellDofOffsets_.push_back(totalSize);
+        }
+        mergedWellResidual_.resize(totalSize);
+        int offset = 0;
+        for (const auto& res : wellResiduals) {
+            for (std::size_t i = 0; i < res.N(); ++i) {
+                mergedWellResidual_[offset + i] = res[i];
+            }
+            offset += res.N();
         }
     }
 
