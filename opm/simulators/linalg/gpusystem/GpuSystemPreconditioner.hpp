@@ -35,6 +35,8 @@
 #include <dune/istl/operators.hh>
 #include <dune/istl/solver.hh>
 
+#include <hip/hip_runtime.h>
+
 #include <functional>
 #include <memory>
 
@@ -57,9 +59,9 @@ namespace Opm::gpusystem
 //
 // Sequential only: no parallel communicator template parameter.
 //
-// Timing is recorded via Dune::Timer.  For accurate GPU stage timing the
-// caller should issue cudaDeviceSynchronize() before reading the report, or
-// CUDA events should replace Dune::Timer in a future revision.
+// Timing is recorded via hipEvent pairs for accurate GPU-side measurement
+// and Dune::Timer for CPU wall-clock time.  The report receives GPU time
+// (hipEventElapsedTime) which reflects actual device execution.
 // --------------------------------------------------------------------------
 template<typename Scalar>
 class GpuSystemPreconditioner
@@ -106,8 +108,16 @@ public:
                             const PropertyTree&              prm)
         : S_(S)
     {
+        hipEventCreate(&evStart_);
+        hipEventCreate(&evStop_);
         initSubSolvers(cpuD, std::move(weightsCalc), pressureIndex, prm);
         initWorkVectors();
+    }
+
+    ~GpuSystemPreconditioner() override
+    {
+        hipEventDestroy(evStart_);
+        hipEventDestroy(evStop_);
     }
 
     // Dune::Preconditioner interface — required by PreconditionerWithUpdate.
@@ -149,11 +159,17 @@ public:
         *resSol_  = Scalar(0);
         *wSol_    = Scalar(0);
 
+        // Stage timing uses hipEvent pairs for accurate GPU-side
+        // measurement and Dune::Timer for CPU wall-clock time.
+        // hipEventElapsedTime() returns milliseconds; we convert to seconds
+        // for consistency with Dune::Timer and SimulatorReportSingle.
         Dune::Timer stage_timer;
+        float gpu_ms = 0.0f;
 
         // -------------------------------------------------------------------
         // Stage 1: Reservoir CPR solve
         // -------------------------------------------------------------------
+        hipEventRecord(evStart_);
         stage_timer.start();
         {
             Dune::InverseOperatorResult res_result;
@@ -164,13 +180,18 @@ public:
             A.usmv(Scalar(-1), *dresSol_, *resRes_);   // resRes_ -= A * dresSol_
             B.usmv(Scalar(-1), *dresSol_, *wRes_);     // wRes_   -= B * dresSol_
         }
+        hipEventRecord(evStop_);
+        hipEventSynchronize(evStop_);
         stage_timer.stop();
-        if (report_ptr_)
-            report_ptr_->sys_stage1_time += stage_timer.lastElapsed();
+        if (report_ptr_) {
+            hipEventElapsedTime(&gpu_ms, evStart_, evStop_);
+            report_ptr_->sys_stage1_time += static_cast<double>(gpu_ms) * 1e-3;
+        }
 
         // -------------------------------------------------------------------
         // Stage 2a: Well solve (CPU round-trip)
         // -------------------------------------------------------------------
+        hipEventRecord(evStart_);
         stage_timer.start();
         {
             Dune::InverseOperatorResult well_result;
@@ -180,13 +201,18 @@ public:
             C.usmv(Scalar(-1), *dwSol_, *resRes_);   // resRes_ -= C * dwSol_
             D.usmv(Scalar(-1), *dwSol_, *wRes_);     // wRes_   -= D * dwSol_
         }
+        hipEventRecord(evStop_);
+        hipEventSynchronize(evStop_);
         stage_timer.stop();
-        if (report_ptr_)
-            report_ptr_->sys_stage2_well_time += stage_timer.lastElapsed();
+        if (report_ptr_) {
+            hipEventElapsedTime(&gpu_ms, evStart_, evStop_);
+            report_ptr_->sys_stage2_well_time += static_cast<double>(gpu_ms) * 1e-3;
+        }
 
         // -------------------------------------------------------------------
         // Stage 2b: Reservoir smoother
         // -------------------------------------------------------------------
+        hipEventRecord(evStart_);
         stage_timer.start();
         {
             Dune::InverseOperatorResult res_result;
@@ -195,23 +221,57 @@ public:
             resSmoother_->apply(*dresSol_, *tmp_resRes_, res_result);
             *resSol_ += *dresSol_;
             B.usmv(Scalar(-1), *dresSol_, *wRes_);   // wRes_ -= B * dresSol_
+            A.usmv(Scalar(-1), *dresSol_, *resRes_); // Update residuals for debugging
         }
+        hipEventRecord(evStop_);
+        hipEventSynchronize(evStop_);
         stage_timer.stop();
-        if (report_ptr_)
-            report_ptr_->sys_stage2_res_time += stage_timer.lastElapsed();
+        if (report_ptr_) {
+            hipEventElapsedTime(&gpu_ms, evStart_, evStop_);
+            report_ptr_->sys_stage2_res_time += static_cast<double>(gpu_ms) * 1e-3;
+        }
 
         // -------------------------------------------------------------------
         // Stage 3: Final well solve (CPU round-trip)
         // -------------------------------------------------------------------
+        hipEventRecord(evStart_);
         stage_timer.start();
         {
             *dwSol_ = Scalar(0);
             applyWellSolverCpu(*dwSol_, *wRes_);
             *wSol_ += *dwSol_;
+            C.usmv(Scalar(-1), *dwSol_, *resRes_); // Update residuals for debugging
+            D.usmv(Scalar(-1), *dwSol_, *wRes_); // Update residuals for debugging
         }
+        hipEventRecord(evStop_);
+        hipEventSynchronize(evStop_);
         stage_timer.stop();
-        if (report_ptr_)
-            report_ptr_->sys_stage3_time += stage_timer.lastElapsed();
+        if (report_ptr_) {
+            hipEventElapsedTime(&gpu_ms, evStart_, evStop_);
+            report_ptr_->sys_stage3_time += static_cast<double>(gpu_ms) * 1e-3;
+        }
+
+        // -------------------------------------------------------------------
+        // Residuals
+        // -------------------------------------------------------------------
+        std::vector<Scalar> hostRes(resRes_->dim());
+        std::vector<Scalar> hostWell(wRes_->dim());
+
+        resRes_->copyToHost(hostRes);
+        wRes_->copyToHost(hostWell);
+
+        Scalar norm2Res = 0;
+
+        for (auto v : hostRes) norm2Res += v*v;
+
+        std::cout << "hostRes norm2 = " << std::sqrt(norm2Res) << "\n";
+
+        Scalar norm2Well = 0;
+
+        for (auto v : hostWell) norm2Well += v*v;
+
+        std::cout << "hostWell norm2 = " << std::sqrt(norm2Well) << "\n";
+
 
         v.res  = *resSol_;
         v.well = *wSol_;
@@ -219,6 +279,10 @@ public:
 
 private:
     const GpuSystemMatrixT<Scalar>& S_;
+
+    // HIP events for GPU-side stage timing.
+    hipEvent_t evStart_;
+    hipEvent_t evStop_;
 
     // GPU reservoir sub-solvers.
     std::unique_ptr<ResSolverT>  resSolver_;
