@@ -357,7 +357,7 @@ private:
         if (!gpuA_) {
             gpuA_.emplace(GpuSparseMatrix::fromMatrix(M));
         } else {
-            gpuA_->updateNonzeroValues(M, /*synchronize=*/true);
+            gpuA_->updateNonzeroValues(M, /*synchronize=*/false);
         }
 
         // 2. Upload reservoir RHS to GPU.
@@ -401,15 +401,22 @@ private:
         //
         // B (WR, 4×3 blocks) and C (RW, 3×4 blocks) have non-square blocks that
         // are unsupported by GpuSparseMatrix (BSR, requires square blocks).  They
-        // are always rebuilt from a scalar CSR expansion via makeNonSquareScalarGpuMatrix.
+        // use a scalar CSR expansion via makeNonSquareScalarGpuMatrix.
+        // On subsequent Newton steps (same well topology), only the values are
+        // re-expanded and uploaded — the GPU sparsity structure is reused.
         // D (WW, 4×4 blocks) is square and uses the standard incremental update path.
-        gpuB_.emplace(makeNonSquareScalarGpuMatrix<Scalar, numWellDofs, numResDofs>(mergedB_));
-        gpuC_.emplace(makeNonSquareScalarGpuMatrix<Scalar, numResDofs, numWellDofs>(mergedC_));
+        if (needRebuild || !gpuB_) {
+            gpuB_.emplace(makeNonSquareScalarGpuMatrix<Scalar, numWellDofs, numResDofs>(mergedB_));
+            gpuC_.emplace(makeNonSquareScalarGpuMatrix<Scalar, numResDofs, numWellDofs>(mergedC_));
+        } else {
+            updateNonSquareScalarValues<Scalar, numWellDofs, numResDofs>(*gpuB_, mergedB_);
+            updateNonSquareScalarValues<Scalar, numResDofs, numWellDofs>(*gpuC_, mergedC_);
+        }
 
         if (needRebuild || !gpuD_) {
             gpuD_.emplace(GpuSparseMatrix::fromMatrix(mergedD_));
         } else {
-            gpuD_->updateNonzeroValues(mergedD_, /*synchronize=*/true);
+            gpuD_->updateNonzeroValues(mergedD_, /*synchronize=*/false);
         }
 
         // 5. Wire system matrix block pointers.
