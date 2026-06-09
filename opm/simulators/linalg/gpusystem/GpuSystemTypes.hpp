@@ -319,4 +319,42 @@ makeNonSquareScalarGpuMatrix(const Dune::BCRSMatrix<Dune::FieldMatrix<Scalar, R,
         static_cast<std::size_t>(nCols));
 }
 
+// --------------------------------------------------------------------------
+// updateNonSquareScalarValues
+//
+// Updates only the non-zero values of an existing GpuSparseMatrixGeneric
+// that was previously created by makeNonSquareScalarGpuMatrix().  The
+// sparsity pattern (row pointers and column indices) is assumed unchanged
+// — only the scalar values are re-expanded from the block matrix and
+// uploaded to the GPU, avoiding GPU memory allocation overhead.
+// --------------------------------------------------------------------------
+template<typename Scalar, int R, int C>
+void
+updateNonSquareScalarValues(gpuistl::GpuSparseMatrixGeneric<Scalar>& gpuMat,
+                            const Dune::BCRSMatrix<Dune::FieldMatrix<Scalar, R, C>>& blockMat)
+{
+    const int nBlockRows = static_cast<int>(blockMat.N());
+    const int nnz        = static_cast<int>(blockMat.nonzeroes()) * R * C;
+
+    assert(static_cast<std::size_t>(nnz) == gpuMat.nonzeroes()
+           && "Sparsity pattern changed — call makeNonSquareScalarGpuMatrix instead");
+
+    std::vector<Scalar> values(nnz);
+
+    int idx = 0;
+    for (int bi = 0; bi < nBlockRows; ++bi) {
+        for (int r = 0; r < R; ++r) {
+            for (auto it = blockMat[bi].begin(); it != blockMat[bi].end(); ++it) {
+                const auto& blk = *it;
+                for (int c = 0; c < C; ++c) {
+                    values[idx] = blk[r][c];
+                    ++idx;
+                }
+            }
+        }
+    }
+
+    gpuMat.getNonZeroValues().copyFromHost(values.data(), static_cast<size_t>(nnz));
+}
+
 } // namespace Opm::gpusystem
