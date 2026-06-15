@@ -136,11 +136,25 @@ setSolverParameters(HYPRE_Solver solver, const PropertyTree& prm, bool use_gpu_b
     HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetMaxLevels(solver, prm.get<int>("max_levels", 15)));
     HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetTol(solver, prm.get<double>("tolerance", 0.0)));
 
+    // Set number of pre/post smoothing sweeps (Hypre default is 1, but explicitly
+    // set to ensure GPU-compatible relaxation types actually run their sweeps).
+    HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetNumSweeps(solver, prm.get<int>("num_sweeps", 1)));
+
     if (use_gpu_backend) {
         HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetRelaxType(solver, prm.get<int>("relax_type", 16)));
         HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetCoarsenType(solver, prm.get<int>("coarsen_type", 8)));
         HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetAggNumLevels(solver, prm.get<int>("agg_num_levels", 0)));
         HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetAggInterpType(solver, prm.get<int>("agg_interp_type", 6)));
+        // Chebyshev eigenvalue estimation: number of CG iterations to
+        // estimate the spectral bounds.  Hypre default is 10.
+        // Setting to 0 uses Gershgorin bound (max row sum) — avoids hang
+        // but may give poor Chebyshev scaling.
+        // The CG eigenvalue estimation can hang indefinitely in
+        // hypre_LINPACKcgtql1 when the matrix is ill-conditioned.
+        // Using 0 (Gershgorin) is the safe choice for GPU.
+        HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetChebyEigEst(solver, prm.get<int>("cheby_eig_est", 0)));
+        HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetChebyScale(solver, prm.get<int>("cheby_scale", 1)));
+        HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetChebyFraction(solver, prm.get<double>("cheby_fraction", 0.3)));
         // Keep transpose to avoid SpMTV
         HYPRE_SAFE_CALL(HYPRE_BoomerAMGSetKeepTranspose(solver, true));
     } else {

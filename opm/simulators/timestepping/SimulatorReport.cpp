@@ -36,7 +36,8 @@ namespace Opm
                                      7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
                                      13, 14, 15, 16, 17, 18,
                                      true, false, false, 19, 20.0, 21.0,
-                                     22, 23, 24, 25, 26, 27, 28, 29, 30.0, 31.0, 32.0, 33.0, 34.0};
+                                     22, 23, 24, 25, 26, 27, 28, 29, 30.0, 31.0, 32.0, 33.0, 34.0,
+                                     35.0, 36.0, 37.0};
     }
 
     bool SimulatorReportSingle::operator==(const SimulatorReportSingle& rhs) const
@@ -77,7 +78,10 @@ namespace Opm
                this->sys_stage2_time == rhs.sys_stage2_time &&
                this->sys_stage2_well_time == rhs.sys_stage2_well_time &&
                this->sys_stage2_res_time == rhs.sys_stage2_res_time &&
-               this->sys_stage3_time == rhs.sys_stage3_time;
+               this->sys_stage3_time == rhs.sys_stage3_time &&
+               this->sys_d2h_time == rhs.sys_d2h_time &&
+               this->sys_cpu_solve_time == rhs.sys_cpu_solve_time &&
+               this->sys_h2d_time == rhs.sys_h2d_time;
     }
 
     void SimulatorReportSingle::operator+=(const SimulatorReportSingle& sr)
@@ -113,6 +117,10 @@ namespace Opm
         sys_stage2_well_time += sr.sys_stage2_well_time;
         sys_stage2_res_time += sr.sys_stage2_res_time;
         sys_stage3_time += sr.sys_stage3_time;
+
+        sys_d2h_time += sr.sys_d2h_time;
+        sys_cpu_solve_time += sr.sys_cpu_solve_time;
+        sys_h2d_time += sr.sys_h2d_time;
         // It makes no sense adding time points. Therefore, do not
         // overwrite the value of global_time which gets set in
         // NonlinearSolver.hpp by the line:
@@ -241,6 +249,34 @@ namespace Opm
                 os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
                                     failureReport->sys_stage3_time,
                                     100*failureReport->sys_stage3_time/noZero(t));
+                }
+                os << std::endl;
+            }
+
+            if (sys_d2h_time > 0.0 || sys_cpu_solve_time > 0.0 || sys_h2d_time > 0.0) {
+                os << fmt::format("    Well xfer/solve:\n");
+                t = sys_d2h_time + (failureReport ? failureReport->sys_d2h_time : 0.0);
+                os << fmt::format("        D2H time:          {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_d2h_time,
+                                    100*failureReport->sys_d2h_time/noZero(t));
+                }
+                os << std::endl;
+                t = sys_cpu_solve_time + (failureReport ? failureReport->sys_cpu_solve_time : 0.0);
+                os << fmt::format("        CPU solve time:    {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_cpu_solve_time,
+                                    100*failureReport->sys_cpu_solve_time/noZero(t));
+                }
+                os << std::endl;
+                t = sys_h2d_time + (failureReport ? failureReport->sys_h2d_time : 0.0);
+                os << fmt::format("        H2D time:          {:7.2f} s", t);
+                if (failureReport) {
+                os << fmt::format(" (Wasted: {:2.1f} s; {:2.1f}%)",
+                                    failureReport->sys_h2d_time,
+                                    100*failureReport->sys_h2d_time/noZero(t));
                 }
                 os << std::endl;
             }

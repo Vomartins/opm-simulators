@@ -20,13 +20,17 @@
 
 #if USE_HIP
 #include <opm/simulators/linalg/gpuistl_hip/detail/FlexibleSolverWrapper.hpp>
+#include <opm/simulators/linalg/gpuistl_hip/PinnedMemoryHolder.hpp>
 #else
 #include <opm/simulators/linalg/gpuistl/detail/FlexibleSolverWrapper.hpp>
+#include <opm/simulators/linalg/gpuistl/PinnedMemoryHolder.hpp>
 #endif
 
 #include <opm/simulators/linalg/FlexibleSolver.hpp>
 #include <opm/simulators/linalg/PreconditionerWithUpdate.hpp>
 #include <opm/simulators/linalg/PropertyTree.hpp>
+
+#include <opm/common/OpmLog/OpmLog.hpp>
 
 #include <opm/simulators/timestepping/SimulatorReport.hpp>
 
@@ -37,8 +41,10 @@
 
 #include <hip/hip_runtime.h>
 
+#include <cmath>
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace Opm::gpusystem
 {
@@ -110,6 +116,8 @@ public:
     {
         hipEventCreate(&evStart_);
         hipEventCreate(&evStop_);
+        hipEventCreate(&evXferStart_);
+        hipEventCreate(&evXferStop_);
         initSubSolvers(cpuD, std::move(weightsCalc), pressureIndex, prm);
         initWorkVectors();
     }
@@ -118,6 +126,8 @@ public:
     {
         hipEventDestroy(evStart_);
         hipEventDestroy(evStop_);
+        hipEventDestroy(evXferStart_);
+        hipEventDestroy(evXferStop_);
     }
 
     // Dune::Preconditioner interface — required by PreconditionerWithUpdate.
@@ -252,26 +262,23 @@ public:
         }
 
         // -------------------------------------------------------------------
-        // Residuals
+        // NaN guard: check solution norms before returning.
+        // If any stage produced NaN/Inf, zero the output so GMRES sees no
+        // correction and the Newton solver can cut the timestep gracefully
+        // instead of propagating NaN into the next iteration.
         // -------------------------------------------------------------------
-        std::vector<Scalar> hostRes(resRes_->dim());
-        std::vector<Scalar> hostWell(wRes_->dim());
+        const Scalar resNorm = resSol_->two_norm();
+        const Scalar wellNorm = wSol_->two_norm();
 
-        resRes_->copyToHost(hostRes);
-        wRes_->copyToHost(hostWell);
-
-        Scalar norm2Res = 0;
-
-        for (auto v : hostRes) norm2Res += v*v;
-
-        std::cout << "hostRes norm2 = " << std::sqrt(norm2Res) << "\n";
-
-        Scalar norm2Well = 0;
-
-        for (auto v : hostWell) norm2Well += v*v;
-
-        std::cout << "hostWell norm2 = " << std::sqrt(norm2Well) << "\n";
-
+        if (std::isnan(resNorm) || std::isinf(resNorm)
+            || std::isnan(wellNorm) || std::isinf(wellNorm)) {
+            OpmLog::warning("GpuSystemPreconditioner: NaN/Inf detected in "
+                            "preconditioner output (resNorm=" + std::to_string(resNorm)
+                            + ", wellNorm=" + std::to_string(wellNorm)
+                            + "). Zeroing solution to allow graceful timestep cut.");
+            *resSol_ = Scalar(0);
+            *wSol_   = Scalar(0);
+        }
 
         v.res  = *resSol_;
         v.well = *wSol_;
@@ -283,6 +290,10 @@ private:
     // HIP events for GPU-side stage timing.
     hipEvent_t evStart_;
     hipEvent_t evStop_;
+
+    // HIP events for well-solver transfer/solve timing.
+    hipEvent_t evXferStart_;
+    hipEvent_t evXferStop_;
 
     // GPU reservoir sub-solvers.
     std::unique_ptr<ResSolverT>  resSolver_;
@@ -304,8 +315,16 @@ private:
     std::optional<GpuVec> dwSol_;      // well solution increment
 
     // CPU-side buffers for the well solver round-trip.
+    // Declared before pinned holders so that unpin (holder destruction)
+    // happens before the underlying Dune vectors are freed.
     WellVectorT<Scalar> cpuWRes_;
     WellVectorT<Scalar> cpuDwSol_;
+
+    // Pinned (page-locked) registration for the CPU well buffers.
+    // Pinning enables the HIP runtime to use DMA for host↔device copies,
+    // avoiding an extra staging buffer and reducing PCIe transfer latency.
+    std::optional<gpuistl::PinnedMemoryHolder<Scalar>> pinnedWRes_;
+    std::optional<gpuistl::PinnedMemoryHolder<Scalar>> pinnedDwSol_;
 
     // -------------------------------------------------------------------
     // applyWellSolverCpu
@@ -319,15 +338,43 @@ private:
     // -------------------------------------------------------------------
     void applyWellSolverCpu(GpuVec& gpuSol, const GpuVec& gpuRhs)
     {
-        // device → host
-        gpuRhs.copyToHost(cpuWRes_);
+        float ms = 0.0f;
 
+        // device → host
+        hipEventRecord(evXferStart_);
+        gpuRhs.copyToHost(cpuWRes_);
+        hipEventRecord(evXferStop_);
+        hipEventSynchronize(evXferStop_);
+        hipEventElapsedTime(&ms, evXferStart_, evXferStop_);
+        double d2h_s = static_cast<double>(ms) * 1e-3;
+
+        // CPU well solve
+        hipEventRecord(evXferStart_);
         Dune::InverseOperatorResult well_result;
         cpuDwSol_ = Scalar(0);
         wellSolver_->apply(cpuDwSol_, cpuWRes_, well_result);
+        hipEventRecord(evXferStop_);
+        hipEventSynchronize(evXferStop_);
+        hipEventElapsedTime(&ms, evXferStart_, evXferStop_);
+        double cpu_s = static_cast<double>(ms) * 1e-3;
 
         // host → device
+        hipEventRecord(evXferStart_);
         gpuSol.copyFromHost(cpuDwSol_);
+        hipEventRecord(evXferStop_);
+        hipEventSynchronize(evXferStop_);
+        hipEventElapsedTime(&ms, evXferStart_, evXferStop_);
+        double h2d_s = static_cast<double>(ms) * 1e-3;
+
+        std::cout << "[SysCPR xfer] D2H=" << d2h_s*1e3
+                  << "ms  CPU_solve=" << cpu_s*1e3
+                  << "ms  H2D=" << h2d_s*1e3 << "ms\n";
+
+        if (report_ptr_) {
+            report_ptr_->sys_d2h_time       += d2h_s;
+            report_ptr_->sys_cpu_solve_time  += cpu_s;
+            report_ptr_->sys_h2d_time        += h2d_s;
+        }
     }
 
     // -------------------------------------------------------------------
@@ -387,6 +434,14 @@ private:
 
         cpuWRes_ .resize(S_.getWW().N());
         cpuDwSol_.resize(S_.getWW().N());
+
+        // Pin the CPU well buffers so HIP can use DMA for host↔device copies.
+        // The underlying Dune::BlockVector storage is contiguous (verified by
+        // GpuVector::copyToHost/copyFromHost which use &bvector[0][0]).
+        if (nWell > 0) {
+            pinnedWRes_ .emplace(&cpuWRes_ [0][0], nWell);
+            pinnedDwSol_.emplace(&cpuDwSol_[0][0], nWell);
+        }
     }
 };
 

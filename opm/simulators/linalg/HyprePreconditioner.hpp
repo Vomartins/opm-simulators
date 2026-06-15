@@ -22,6 +22,7 @@
 #define OPM_HYPRE_PRECONDITIONER_HEADER_INCLUDED
 
 #include <opm/common/ErrorMacros.hpp>
+#include <opm/common/OpmLog/OpmLog.hpp>
 #include <opm/common/TimingMacros.hpp>
 #include <opm/simulators/linalg/PreconditionerWithUpdate.hpp>
 #include <opm/simulators/linalg/PropertyTree.hpp>
@@ -41,7 +42,9 @@
 #include <HYPRE_parcsr_ls.h>
 #include <_hypre_utilities.h>
 
+#include <cmath>
 #include <numeric>
+#include <string>
 #include <vector>
 
 namespace Opm::linalg
@@ -208,10 +211,22 @@ public:
 #endif
         }
 
-        HypreInterface::destroySolver(solver_);
-        HypreInterface::destroyVector(x_hypre_);
-        HypreInterface::destroyVector(b_hypre_);
-        HypreInterface::destroyMatrix(A_hypre_);
+        // Wrap destroy calls in try-catch: throwing from a destructor during
+        // stack unwinding triggers std::terminate(), masking the actual error.
+        try {
+            HypreInterface::destroySolver(solver_);
+        } catch (const std::exception& e) {
+            OpmLog::warning("HyprePreconditioner: ignoring error in "
+                            "destroySolver: " + std::string(e.what()));
+        }
+        try {
+            HypreInterface::destroyVector(x_hypre_);
+            HypreInterface::destroyVector(b_hypre_);
+            HypreInterface::destroyMatrix(A_hypre_);
+        } catch (const std::exception& e) {
+            OpmLog::warning("HyprePreconditioner: ignoring error in "
+                            "destroy: " + std::string(e.what()));
+        }
     }
 
     /**
@@ -222,10 +237,22 @@ public:
     void update() override
     {
         OPM_TIMEBLOCK(prec_update);
+        setup_failed_ = false;
 
         // Update matrix values using pre-allocated helper arrays
         HypreInterface::updateMatrixValues(A_, A_hypre_, sparsity_pattern_,
                                            host_arrays_, device_arrays_, use_gpu_backend_);
+
+        // Check matrix values for NaN/Inf before calling BoomerAMGSetup.
+        // The Chebyshev smoother's CG eigenvalue estimation
+        // (hypre_LINPACKcgtql1) hangs indefinitely on degenerate matrices.
+        if (hasNaNInMatrix()) {
+            OpmLog::warning("HyprePreconditioner::update(): NaN/Inf "
+                            "detected in matrix values. Skipping AMG "
+                            "setup to avoid hang.");
+            setup_failed_ = true;
+            return;
+        }
 
         // Get the underlying ParCSR matrix for setup
         HYPRE_ParCSRMatrix parcsr_A;
@@ -266,6 +293,14 @@ public:
     void apply(X& v, const Y& d) override
     {
         OPM_TIMEBLOCK(prec_apply);
+
+        // If setup was skipped due to degenerate matrix, return zero
+        // correction so GMRES sees no progress and the Newton solver
+        // can cut the timestep.
+        if (setup_failed_) {
+            v = 0;
+            return;
+        }
 
         // Transfer vectors to Hypre
         HypreInterface::transferVectorToHypre(v, x_hypre_, host_arrays_,
@@ -345,6 +380,36 @@ private:
 
     // Backend configuration
     bool use_gpu_backend_ = false;
+    bool setup_failed_ = false; //!< True when update() skipped AMG setup due to degenerate matrix
+
+    /// Check if the source matrix contains NaN/Inf values.
+    /// For GPU matrices: compute two_norm of non-zero values (NaN if any element is NaN).
+    /// For CPU matrices: iterate over BCRS matrix entries.
+    bool hasNaNInMatrix() const
+    {
+#if HYPRE_USING_CUDA || HYPRE_USING_HIP
+        if constexpr (gpuistl::is_gpu_type<M>::value) {
+            const auto norm = A_.getNonZeroValues().two_norm();
+            return std::isnan(norm) || std::isinf(norm);
+        } else
+#endif
+        {
+            // CPU path: scan matrix entries directly
+            for (auto row = A_.begin(); row != A_.end(); ++row) {
+                for (auto col = row->begin(); col != row->end(); ++col) {
+                    const auto& block = *col;
+                    for (int i = 0; i < M::block_type::rows; ++i) {
+                        for (int j = 0; j < M::block_type::cols; ++j) {
+                            if (std::isnan(block[i][j]) || std::isinf(block[i][j])) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+    }
 };
 
 } // namespace Hypre

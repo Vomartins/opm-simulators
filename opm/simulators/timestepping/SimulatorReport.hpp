@@ -76,6 +76,10 @@ namespace Opm
         double sys_stage2_res_time = 0.0;
         double sys_stage3_time = 0.0;
 
+        double sys_d2h_time = 0.0;
+        double sys_cpu_solve_time = 0.0;
+        double sys_h2d_time = 0.0;
+
         static SimulatorReportSingle serializationTestObject();
 
         bool operator==(const SimulatorReportSingle&) const;
@@ -126,6 +130,9 @@ namespace Opm
             serializer(sys_stage2_well_time);
             serializer(sys_stage2_res_time);
             serializer(sys_stage3_time);
+            serializer(sys_d2h_time);
+            serializer(sys_cpu_solve_time);
+            serializer(sys_h2d_time);
         }
     };
 
