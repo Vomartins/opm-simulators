@@ -71,7 +71,7 @@ namespace Opm::gpusystem
 // GPU analogue of ISTLSolverSystem.  Runs the 3-stage GpuSystemPreconditioner
 // inside a Dune::FlexibleSolver over the coupled (res+well) GPU system.
 //
-// Derive from AbstractISTLSolver<TypeTag> directly; all GPU infrastructure
+// Derive from AbstractISTLSolver<SparseMatrixAdapter, Vector> directly; all GPU infrastructure
 // (comms, prm, weights) is owned here to avoid the private-member barrier
 // of ISTLSolverGPUISTL.
 //
@@ -80,7 +80,8 @@ namespace Opm::gpusystem
 //   - Sequential only (MPI parallel not yet supported for the coupled system)
 // --------------------------------------------------------------------------
 template<class TypeTag>
-class ISTLSolverGPUSystem : public AbstractISTLSolver<TypeTag>
+class ISTLSolverGPUSystem : public AbstractISTLSolver<GetPropType<TypeTag, Properties::SparseMatrixAdapter>,
+                                                      GetPropType<TypeTag, Properties::GlobalEqVector>>
 {
     // ------------------------------------------------------------------
     // Type aliases
@@ -89,6 +90,7 @@ class ISTLSolverGPUSystem : public AbstractISTLSolver<TypeTag>
     using SparseMatrixAdapter
                         = GetPropType<TypeTag, Properties::SparseMatrixAdapter>;
     using Vector        = GetPropType<TypeTag, Properties::GlobalEqVector>;
+    using Parent        = AbstractISTLSolver<SparseMatrixAdapter, Vector>;
     using Matrix        = typename SparseMatrixAdapter::IstlMatrix;
     using Scalar        = GetPropType<TypeTag, Properties::Scalar>;
     using Indices       = GetPropType<TypeTag, Properties::Indices>;
@@ -265,12 +267,12 @@ public:
 
     int getSolveCount() const override { return solveCount_; }
 
-    std::optional<typename AbstractISTLSolver<TypeTag>::WellSolutionView>
+    std::optional<typename Parent::WellSolutionView>
     getWellSolution() const override
     {
         if (cpuWellSolution_.N() == 0 || wellDofOffsets_.empty())
             return std::nullopt;
-        return typename AbstractISTLSolver<TypeTag>::WellSolutionView{
+        return typename Parent::WellSolutionView{
             cpuWellSolution_, wellDofOffsets_};
     }
 
@@ -343,7 +345,7 @@ private:
     // ------------------------------------------------------------------
     bool checkConvergence(const Dune::InverseOperatorResult& result) const
     {
-        return AbstractISTLSolver<TypeTag>::checkConvergence(result, params_);
+        return Parent::checkConvergence(result, params_);
     }
 
     // ------------------------------------------------------------------

@@ -232,7 +232,7 @@ public:
     /*!
     * \copydoc AbstractISTLSolver::solve
     */
-    bool solve(Vector& x) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* /*report_ptr*/ = nullptr) override
     {
         // Increase solver count
         ++solveCount_;
