@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CpuSystemBackend.hpp"
 #include "SystemPreconditionerFactory.hpp"
 #include "WellMatrixMerger.hpp"
 
@@ -80,7 +81,7 @@ public:
 
         // sysPrecond_->setSimulatorReportPointer(report_ptr);
 
-        using SysPrecSeq = SystemPreconditioner<Scalar, SeqResOperatorT<Scalar>>;
+        using SysPrecSeq = SystemPreconditioner<CpuSystemBackend<Scalar, SeqResOperatorT<Scalar>>>;
         if (auto* p = dynamic_cast<SysPrecSeq*>(sysPrecond_)) {
             p->setSimulatorReportPointer(report_ptr);
         }

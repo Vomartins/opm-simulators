@@ -69,6 +69,12 @@ public:
     const WRMatrixT<Scalar>* B = nullptr;  // (1,0) well–reservoir coupling
     const WWMatrixT<Scalar>* D = nullptr;  // (1,1) well
 
+    // Named sub-block accessors (matches GpuSystemMatrixT convention).
+    const RRMatrixT<Scalar>& getRR()  const { return *A; }
+    const RWMatrixT<Scalar>& getRW()  const { return *C; }
+    const WRMatrixT<Scalar>& getWR()  const { return *B; }
+    const WWMatrixT<Scalar>& getWW()  const { return *D; }
+
     // Sub-block access: S[_0][_0], S[_0][_1], S[_1][_0], S[_1][_1]
     inline SystemMatrixRow0T<Scalar> operator[](Dune::index_constant<0>) const;
     inline SystemMatrixRow1T<Scalar> operator[](Dune::index_constant<1>) const;

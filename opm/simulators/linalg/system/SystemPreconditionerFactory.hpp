@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CpuSystemBackend.hpp"
 #include "MultiComm.hpp"
 #include "SystemPreconditioner.hpp"
 #include "SystemTypes.hpp"
@@ -51,7 +52,8 @@ void addSystemCprSeq()
                               return sysWeightCalc()[Dune::Indices::_0];
                           };
                       }
-                      return std::make_shared<SystemPreconditioner<Scalar, SeqResOperatorT<Scalar>>>(
+                      using BackendT = CpuSystemBackend<Scalar, SeqResOperatorT<Scalar>>;
+                      return std::make_shared<SystemPreconditioner<BackendT>>(
                           op.getmat(), resWeightCalc, pressureIndex, prm);
                   });
 }
@@ -75,7 +77,8 @@ void addSystemCprParSeq()
                               return sysWeightCalc()[Dune::Indices::_0];
                           };
                       }
-                      return std::make_shared<SystemPreconditioner<Scalar, SeqResOperatorT<Scalar>>>(
+                      using BackendT = CpuSystemBackend<Scalar, SeqResOperatorT<Scalar>>;
+                      return std::make_shared<SystemPreconditioner<BackendT>>(
                           op.getmat(), resWeightCalc, pressureIndex, prm);
                   });
 }
@@ -100,7 +103,8 @@ void addSystemCprPar()
                           };
                       }
                       const auto& resComm = comm[Dune::Indices::_0];
-                      return std::make_shared<SystemPreconditioner<Scalar, ParResOperatorT<Scalar>, ParResComm>>(
+                      using BackendT = CpuSystemBackend<Scalar, ParResOperatorT<Scalar>, ParResComm>;
+                      return std::make_shared<SystemPreconditioner<BackendT>>(
                           op.getmat(), resWeightCalc, pressureIndex, prm, resComm);
                   });
 }

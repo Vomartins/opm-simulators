@@ -27,7 +27,7 @@
 
 // GPU system solver (coupled reservoir+well) — outer Krylov solver and
 // reservoir FlexibleSolverWrapper instantiations live here rather than in
-// GpuSystemPreconditioner.cpp because FlexibleSolver_impl.hpp pulls in
+// GpuSystemPreconditioner.cpp (GPU backend instantiations) because FlexibleSolver_impl.hpp pulls in
 // umfpack.hh which requires domain_type from the matrix type, and
 // GpuSystemMatrixT does not provide it.  This CUDA/HIP translation unit
 // is exempt from that constraint.
@@ -48,7 +48,7 @@ template class ::Dune::FlexibleSolver<Dune::MatrixAdapter<::Opm::gpuistl::GpuSpa
 // Outer Krylov solver over the coupled (reservoir+well) GPU system vector.
 template class ::Dune::FlexibleSolver<Opm::gpusystem::GpuSystemSeqOpT<double>>;
 
-// GPU reservoir sub-solver wrapper used inside GpuSystemPreconditioner.
+// GPU reservoir sub-solver wrapper used inside SystemPreconditioner<GpuSystemBackend>.
 template class Opm::gpuistl::detail::FlexibleSolverWrapper<
     Opm::gpusystem::GpuRRMatrixT<double>,
     Opm::gpuistl::GpuVector<double>,

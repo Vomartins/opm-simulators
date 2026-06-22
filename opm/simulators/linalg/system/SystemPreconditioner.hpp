@@ -1,17 +1,21 @@
 #pragma once
 
-#include "MultiComm.hpp"
-#include "SystemTypes.hpp"
+#include <opm/simulators/linalg/system/SystemTypes.hpp>
 
-#include <dune/istl/operators.hh>
-#include <dune/istl/paamg/pinfo.hh>
-
-#include <opm/simulators/linalg/FlexibleSolver.hpp>
 #include <opm/simulators/linalg/PreconditionerWithUpdate.hpp>
 #include <opm/simulators/linalg/PropertyTree.hpp>
 
 #include <opm/simulators/timestepping/SimulatorReport.hpp>
+
 #include <dune/common/timer.hh>
+#include <dune/istl/operators.hh>
+#include <dune/istl/paamg/pinfo.hh>
+#include <dune/istl/solver.hh>
+
+#include <functional>
+#include <memory>
+#include <optional>
+#include <type_traits>
 
 namespace Opm
 {
@@ -28,67 +32,81 @@ template<typename Scalar>
 using ParResOperatorT = Dune::OverlappingSchwarzOperator<RRMatrixT<Scalar>, ResVectorT<Scalar>, ResVectorT<Scalar>, ParResComm>;
 #endif
 
-// Preconditioner for the coupled reservoir-well system.
+// --------------------------------------------------------------------------
+// SystemPreconditioner
 //
-// Templated on scalar type, reservoir operator and communication types to
-// unify sequential and parallel implementations. The 3-stage algorithm:
-//   1. Reservoir CPR solve
-//   2. Well solve + reservoir smoothing
-//   3. Final well solve
+// Unified preconditioner for the coupled reservoir-well system.
+// Templated on a Backend traits struct that provides all type aliases and
+// static helpers for either the CPU or GPU path.
 //
-// For parallel runs, copyOwnerToAll synchronises overlap DOFs before
+// The 3-stage algorithm:
+//   Stage 1 — Reservoir CPR solve
+//   Stage 2 — Well solve + reservoir smoothing
+//   Stage 3 — Final well solve
+//
+// For CPU parallel runs, copyOwnerToAll synchronises overlap DOFs before
 // each reservoir sub-solve.
-template <class Scalar, class ResOp, class ResComm = Dune::Amg::SequentialInformation>
-class SystemPreconditioner : public Dune::PreconditionerWithUpdate<SystemVectorT<Scalar>, SystemVectorT<Scalar>>
+//
+// For GPU runs, the well sub-solver executes on CPU with device-to-host
+// round-trips (well systems are small, so PCIe overhead is negligible).
+// --------------------------------------------------------------------------
+template <class Backend>
+class SystemPreconditioner
+    : public Dune::PreconditionerWithUpdate<typename Backend::SysVector,
+                                            typename Backend::SysVector>
 {
+    using Scalar       = typename Backend::ScalarType;
+    using SysMatrix    = typename Backend::SysMatrix;
+    using SysVector    = typename Backend::SysVector;
+    using ResWork      = typename Backend::ResWork;
+    using WellWork     = typename Backend::WellWork;
+    using ResSolver    = typename Backend::ResSolver;
+    using WellOp       = typename Backend::WellOperator;
+    using WellSolver   = typename Backend::WellSolver;
+    using WeightsCalc  = typename Backend::WeightsCalc;
+    using ResCommType  = typename Backend::ResCommType;
+
 public:
-    static constexpr bool isParallel = !std::is_same_v<ResComm, Dune::Amg::SequentialInformation>;
-
-    using ResFlexibleSolverType = Dune::FlexibleSolver<ResOp>;
-    using WellOperator = Dune::MatrixAdapter<WWMatrixT<Scalar>, WellVectorT<Scalar>, WellVectorT<Scalar>>;
-    using WellFlexibleSolverType = Dune::FlexibleSolver<WellOperator>;
-
-    static constexpr auto _0 = Dune::Indices::_0;
-    static constexpr auto _1 = Dune::Indices::_1;
+    static constexpr bool isParallel = Backend::isParallel;
 
     SimulatorReportSingle* report_ptr_ = nullptr;
 
     void setSimulatorReportPointer(SimulatorReportSingle* report) { report_ptr_ = report; }
-
     SimulatorReportSingle* simulatorReportPointer() const { return report_ptr_; }
 
-    // Sequential constructor (enabled only for non-parallel specializations).
+    // -----------------------------------------------------------------------
+    // Sequential constructor (all backends; also the only constructor for GPU).
+    // -----------------------------------------------------------------------
     template <bool P = isParallel, std::enable_if_t<!P, int> = 0>
-    SystemPreconditioner(const SystemMatrixT<Scalar>& S,
-                         const std::function<ResVectorT<Scalar>()>& weightsCalculator,
-                         int pressureIndex,
-                         const Opm::PropertyTree& prm)
+    SystemPreconditioner(const SysMatrix&     S,
+                         WeightsCalc          weightsCalculator,
+                         int                  pressureIndex,
+                         const PropertyTree&  prm)
         : S_(S)
     {
-        initSubSolvers(prm, weightsCalculator, pressureIndex);
+        initSubSolvers(prm, std::move(weightsCalculator), pressureIndex);
         initWorkVectors();
     }
 
-    // Parallel constructor (enabled only for parallel specializations).
+    // -----------------------------------------------------------------------
+    // Parallel constructor (CPU only; enabled when Backend::isParallel).
+    // -----------------------------------------------------------------------
     template <bool P = isParallel, std::enable_if_t<P, int> = 0>
-    SystemPreconditioner(const SystemMatrixT<Scalar>& S,
-                         const std::function<ResVectorT<Scalar>()>& weightsCalculator,
-                         int pressureIndex,
-                         const Opm::PropertyTree& prm,
-                         const ResComm& resComm)
+    SystemPreconditioner(const SysMatrix&     S,
+                         WeightsCalc          weightsCalculator,
+                         int                  pressureIndex,
+                         const PropertyTree&  prm,
+                         const ResCommType&   resComm)
         : S_(S)
         , resComm_(&resComm)
     {
-        initSubSolvers(prm, weightsCalculator, pressureIndex);
+        initSubSolvers(prm, std::move(weightsCalculator), pressureIndex);
         initWorkVectors();
     }
 
-    void pre(SystemVectorT<Scalar>&, SystemVectorT<Scalar>&) override
-    {
-    }
-    void post(SystemVectorT<Scalar>&) override
-    {
-    }
+    // Dune::Preconditioner interface.
+    void pre(SysVector&, SysVector&) override {}
+    void post(SysVector&) override {}
 
     Dune::SolverCategory::Category category() const override
     {
@@ -98,170 +116,249 @@ public:
             return Dune::SolverCategory::sequential;
     }
 
+    bool hasPerfectUpdate() const override
+    {
+        return Backend::hasPerfectUpdate;
+    }
+
+    // -----------------------------------------------------------------------
+    // update — propagates non-zero value changes to all sub-solvers.
+    // -----------------------------------------------------------------------
     void update() override
     {
-        resSolver_->preconditioner().update();
-        resSmoother_->preconditioner().update();
+        Backend::updateResSolver(*resSolver_);
+        Backend::updateResSolver(*resSmoother_);
         wellSolver_->preconditioner().update();
     }
 
-    bool hasPerfectUpdate() const override
+    // -----------------------------------------------------------------------
+    // apply — runs the 3-stage preconditioner.
+    //
+    // v  : Output — approximate solution increment
+    // d  : Input  — defect / right-hand side (not modified)
+    // -----------------------------------------------------------------------
+    void apply(SysVector& v, const SysVector& d) override
     {
-        return true;
-    }
+        // Sub-block references (named consistently with the matrix members:
+        //   A = (0,0) reservoir-reservoir
+        //   B = (1,0) well-reservoir
+        //   C = (0,1) reservoir-well
+        //   D = (1,1) well-well
+        const auto& A = S_.getRR();
+        const auto& B = S_.getWR();
+        const auto& C = S_.getRW();
+        const auto& D = S_.getWW();
 
-    void apply(SystemVectorT<Scalar>& v, const SystemVectorT<Scalar>& d) override
-    {
-        const auto& A = S_[_0][_0];
-        const auto& C = S_[_1][_0];
-        const auto& B = S_[_0][_1];
-        const auto& D = S_[_1][_1];
-
-        resRes_ = d[_0];
-        wRes_ = d[_1];
-        resSol_ = 0.0;
-        wSol_ = 0.0;
+        // Initialise residuals and solutions.
+        *resRes_  = Backend::getRes(d);
+        *wRes_    = Backend::getWell(d);
+        *resSol_  = Scalar(0);
+        *wSol_    = Scalar(0);
 
         Dune::Timer stage_timer;
 
-        stage_timer.start();
+        // -------------------------------------------------------------------
         // Stage 1: Reservoir CPR solve
-        {
-            Dune::InverseOperatorResult res_result;
-            dresSol_ = 0.0;
-            tmp_resRes_ = resRes_;
-            syncResVector(tmp_resRes_);
-            resSolver_->apply(dresSol_, tmp_resRes_, res_result);
-            resSol_ += dresSol_;
-            A.mmv(dresSol_, resRes_);
-            C.mmv(dresSol_, wRes_);
-        }
-        stage_timer.stop();
-        if (this->report_ptr_) {
-            this->report_ptr_->sys_stage1_time += stage_timer.lastElapsed();
-        }
-
-        // stage_timer.start();
-        // Stage 2: Well solve + reservoir system smoothing
-        {
-            stage_timer.start();
-            Dune::InverseOperatorResult well_result;
-            dwSol_ = 0.0;
-            tmp_wRes_ = wRes_;
-            wellSolver_->apply(dwSol_, tmp_wRes_, well_result);
-            wSol_ += dwSol_;
-            B.mmv(dwSol_, resRes_);
-            D.mmv(dwSol_, wRes_);
-            stage_timer.stop();
-            if (this->report_ptr_) {
-                this->report_ptr_->sys_stage2_well_time += stage_timer.lastElapsed();
-            }
-
-            stage_timer.start();
-            Dune::InverseOperatorResult res_result;
-            dresSol_ = 0.0;
-            tmp_resRes_ = resRes_;
-            syncResVector(tmp_resRes_);
-            resSmoother_->apply(dresSol_, tmp_resRes_, res_result);
-            resSol_ += dresSol_;
-            C.mmv(dresSol_, wRes_);
-            stage_timer.stop();
-            if (this->report_ptr_) {
-                this->report_ptr_->sys_stage2_res_time += stage_timer.lastElapsed();
-            }
-        }
-        // stage_timer.stop();
-        // if (this->report_ptr_) {
-        //     this->report_ptr_->sys_stage2_time += stage_timer.lastElapsed();
-        // }
-
-
+        // -------------------------------------------------------------------
         stage_timer.start();
-        // Stage 3: Final well solve
         {
-            Dune::InverseOperatorResult well_result;
-            dwSol_ = 0.0;
-            tmp_wRes_ = wRes_;
-            wellSolver_->apply(dwSol_, tmp_wRes_, well_result);
-            wSol_ += dwSol_;
+            Dune::InverseOperatorResult res_result;
+            *dresSol_    = Scalar(0);
+            *tmp_resRes_ = *resRes_;
+            syncResVector(*tmp_resRes_);
+            resSolver_->apply(*dresSol_, *tmp_resRes_, res_result);
+            *resSol_ += *dresSol_;
+            A.usmv(Scalar(-1), *dresSol_, *resRes_);   // resRes_ -= A * dresSol_
+            B.usmv(Scalar(-1), *dresSol_, *wRes_);     // wRes_   -= B * dresSol_
         }
         stage_timer.stop();
-        if (this->report_ptr_) {
-            this->report_ptr_->sys_stage3_time += stage_timer.lastElapsed();
-        }
+        if (report_ptr_)
+            report_ptr_->sys_stage1_time += stage_timer.lastElapsed();
 
-        syncResVector(resSol_);
-        v[_0] = resSol_;
-        v[_1] = wSol_;
+        // -------------------------------------------------------------------
+        // Stage 2a: Well solve
+        // -------------------------------------------------------------------
+        stage_timer.start();
+        {
+            *dwSol_ = Scalar(0);
+            applyWellSolver(*dwSol_, *wRes_);
+            *wSol_ += *dwSol_;
+            C.usmv(Scalar(-1), *dwSol_, *resRes_);     // resRes_ -= C * dwSol_
+            D.usmv(Scalar(-1), *dwSol_, *wRes_);       // wRes_   -= D * dwSol_
+        }
+        stage_timer.stop();
+        if (report_ptr_)
+            report_ptr_->sys_stage2_well_time += stage_timer.lastElapsed();
+
+        // -------------------------------------------------------------------
+        // Stage 2b: Reservoir smoother
+        // -------------------------------------------------------------------
+        stage_timer.start();
+        {
+            Dune::InverseOperatorResult res_result;
+            *dresSol_    = Scalar(0);
+            *tmp_resRes_ = *resRes_;
+            syncResVector(*tmp_resRes_);
+            resSmoother_->apply(*dresSol_, *tmp_resRes_, res_result);
+            *resSol_ += *dresSol_;
+            B.usmv(Scalar(-1), *dresSol_, *wRes_);     // wRes_ -= B * dresSol_
+        }
+        stage_timer.stop();
+        if (report_ptr_)
+            report_ptr_->sys_stage2_res_time += stage_timer.lastElapsed();
+
+        // -------------------------------------------------------------------
+        // Stage 3: Final well solve
+        // -------------------------------------------------------------------
+        stage_timer.start();
+        {
+            *dwSol_ = Scalar(0);
+            applyWellSolver(*dwSol_, *wRes_);
+            *wSol_ += *dwSol_;
+        }
+        stage_timer.stop();
+        if (report_ptr_)
+            report_ptr_->sys_stage3_time += stage_timer.lastElapsed();
+
+        syncResVector(*resSol_);
+        Backend::getRes(v)  = *resSol_;
+        Backend::getWell(v) = *wSol_;
     }
 
 private:
-    const SystemMatrixT<Scalar>& S_;
-    const ResComm* resComm_ = nullptr;
+    const SysMatrix& S_;
+    const ResCommType* resComm_ = nullptr;
 
-    std::unique_ptr<ResOp> rop_;
-    std::unique_ptr<WellOperator> wop_;
-    std::unique_ptr<ResFlexibleSolverType> resSolver_;
-    std::unique_ptr<ResFlexibleSolverType> resSmoother_;
-    std::unique_ptr<WellFlexibleSolverType> wellSolver_;
+    // Reservoir operator — only used for CPU backends (GPU FlexibleSolverWrapper
+    // creates its own operator internally).
+    std::unique_ptr<typename Backend::ResOperator> rop_;
 
-    WellVectorT<Scalar> wSol_;
-    ResVectorT<Scalar> resSol_;
-    ResVectorT<Scalar> dresSol_;
-    WellVectorT<Scalar> dwSol_;
-    ResVectorT<Scalar> tmp_resRes_;
-    WellVectorT<Scalar> tmp_wRes_;
-    ResVectorT<Scalar> resRes_;
-    WellVectorT<Scalar> wRes_;
+    // Sub-solvers.
+    std::unique_ptr<ResSolver>   resSolver_;
+    std::unique_ptr<ResSolver>   resSmoother_;
+    std::unique_ptr<WellOp>      wop_;
+    std::unique_ptr<WellSolver>  wellSolver_;
 
-    void syncResVector(ResVectorT<Scalar>& v)
+    // GPU work vectors (flat scalar buffers) and CPU work vectors (block vectors)
+    // are unified via std::optional.  Both ResWork(size_t) and WellWork(size_t)
+    // constructors exist, so emplace(n) works for both backends.
+    std::optional<ResWork>  resRes_;
+    std::optional<ResWork>  resSol_;
+    std::optional<ResWork>  dresSol_;
+    std::optional<ResWork>  tmp_resRes_;
+    std::optional<WellWork> wRes_;
+    std::optional<WellWork> wSol_;
+    std::optional<WellWork> dwSol_;
+
+    // CPU well-solver scratch copy (CPU backend only — FlexibleSolver may modify RHS).
+    std::optional<WellWork> tmp_wRes_;
+
+    // CPU-side buffers for the GPU well-solver round-trip (GPU backend only).
+    WellVectorT<Scalar> cpuWRes_;
+    WellVectorT<Scalar> cpuDwSol_;
+
+    // -----------------------------------------------------------------------
+    // applyWellSolver — applies the well sub-solver.
+    //
+    // GPU: copies RHS to host, runs CPU FlexibleSolver, copies result back.
+    // CPU: copies RHS to scratch, runs FlexibleSolver in-place.
+    // -----------------------------------------------------------------------
+    void applyWellSolver(WellWork& sol, WellWork& rhs)
     {
-        if constexpr (isParallel) {
+        if constexpr (Backend::isGpu) {
+            rhs.copyToHost(cpuWRes_);
+            Dune::InverseOperatorResult well_result;
+            cpuDwSol_ = Scalar(0);
+            wellSolver_->apply(cpuDwSol_, cpuWRes_, well_result);
+            sol.copyFromHost(cpuDwSol_);
+        } else {
+            Dune::InverseOperatorResult well_result;
+            *tmp_wRes_ = rhs;
+            wellSolver_->apply(sol, *tmp_wRes_, well_result);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // syncResVector — parallel overlap synchronisation (no-op for sequential
+    // and GPU backends).
+    // -----------------------------------------------------------------------
+    void syncResVector(ResWork& v)
+    {
+        if constexpr (Backend::isParallel) {
             resComm_->copyOwnerToAll(v, v);
         }
     }
 
-    void initSubSolvers(const Opm::PropertyTree& prm,
-                        const std::function<ResVectorT<Scalar>()>& weightsCalculator,
-                        int pressureIndex)
+    // -----------------------------------------------------------------------
+    // initSubSolvers — constructs reservoir and well sub-solvers.
+    // -----------------------------------------------------------------------
+    void initSubSolvers(const PropertyTree& prm,
+                        WeightsCalc         weightsCalc,
+                        int                 pressureIndex)
     {
-        auto resprm = prm.get_child("reservoir_solver");
+        auto resprm         = prm.get_child("reservoir_solver");
         auto resprmsmoother = prm.get_child("reservoir_smoother");
-        auto wellprm = prm.get_child("well_solver");
+        auto wellprm        = prm.get_child("well_solver");
 
-        if constexpr (isParallel) {
-            rop_ = std::make_unique<ResOp>(S_[_0][_0], *resComm_);
-            resSolver_ = std::make_unique<ResFlexibleSolverType>(
-                *rop_, *resComm_, resprm, weightsCalculator, pressureIndex);
-            resSmoother_ = std::make_unique<ResFlexibleSolverType>(
-                *rop_, *resComm_, resprmsmoother, weightsCalculator, pressureIndex);
+        if constexpr (Backend::isGpu) {
+            // GPU: FlexibleSolverWrapper creates its own operator from the matrix.
+            const auto& resA = S_.getRR();
+            resSolver_ = std::make_unique<ResSolver>(
+                resA, /*parallel=*/false, resprm,
+                pressureIndex, weightsCalc, /*forceSerial=*/true, /*comm=*/nullptr);
+            resSmoother_ = std::make_unique<ResSolver>(
+                resA, /*parallel=*/false, resprmsmoother,
+                pressureIndex, weightsCalc, /*forceSerial=*/true, /*comm=*/nullptr);
+        } else if constexpr (Backend::isParallel) {
+            // CPU parallel: operator wraps the reservoir matrix + communicator.
+            using ResOp = typename Backend::ResOperator;
+            rop_ = std::make_unique<ResOp>(S_.getRR(), *resComm_);
+            resSolver_ = std::make_unique<ResSolver>(
+                *rop_, *resComm_, resprm, weightsCalc, pressureIndex);
+            resSmoother_ = std::make_unique<ResSolver>(
+                *rop_, *resComm_, resprmsmoother, weightsCalc, pressureIndex);
         } else {
-            rop_ = std::make_unique<ResOp>(S_[_0][_0]);
-            resSolver_ = std::make_unique<ResFlexibleSolverType>(
-                *rop_, resprm, weightsCalculator, pressureIndex);
-            resSmoother_ = std::make_unique<ResFlexibleSolverType>(
-                *rop_, resprmsmoother, weightsCalculator, pressureIndex);
+            // CPU sequential.
+            using ResOp = typename Backend::ResOperator;
+            rop_ = std::make_unique<ResOp>(S_.getRR());
+            resSolver_ = std::make_unique<ResSolver>(
+                *rop_, resprm, weightsCalc, pressureIndex);
+            resSmoother_ = std::make_unique<ResSolver>(
+                *rop_, resprmsmoother, weightsCalc, pressureIndex);
         }
 
-        auto wop = std::make_unique<WellOperator>(S_[_1][_1]);
-        std::function<WellVectorT<Scalar>()> weightsCalculatorWell;
-        wellSolver_ = std::make_unique<WellFlexibleSolverType>(
-            *wop, wellprm, weightsCalculatorWell, pressureIndex);
-        wop_ = std::move(wop);
+        // Well sub-solver — identical for all backends.
+        const auto& cpuWellMatrix = Backend::getWellMatrixCpu(S_);
+        wop_ = std::make_unique<WellOp>(cpuWellMatrix);
+        std::function<WellVectorT<Scalar>()> noWeights;
+        wellSolver_ = std::make_unique<WellSolver>(
+            *wop_, wellprm, noWeights, pressureIndex);
     }
 
+    // -----------------------------------------------------------------------
+    // initWorkVectors — allocates GPU and CPU work buffers.
+    // -----------------------------------------------------------------------
     void initWorkVectors()
     {
-        const auto numRes = S_[_0][_0].N();
-        const auto numWell = S_[_1][_1].N();
-        wSol_.resize(numWell);
-        resSol_.resize(numRes);
-        dresSol_.resize(numRes);
-        dwSol_.resize(numWell);
-        tmp_resRes_.resize(numRes);
-        tmp_wRes_.resize(numWell);
-        resRes_.resize(numRes);
-        wRes_.resize(numWell);
+        const std::size_t nRes  = Backend::resWorkSize(S_);
+        const std::size_t nWell = Backend::wellWorkSize(S_);
+
+        resRes_    .emplace(nRes);
+        resSol_    .emplace(nRes);
+        dresSol_   .emplace(nRes);
+        tmp_resRes_.emplace(nRes);
+        wRes_      .emplace(nWell);
+        wSol_      .emplace(nWell);
+        dwSol_     .emplace(nWell);
+
+        if constexpr (Backend::isGpu) {
+            // CPU-side buffers for the well-solver round-trip.
+            cpuWRes_ .resize(S_.getWW().N());
+            cpuDwSol_.resize(S_.getWW().N());
+        } else {
+            // CPU scratch for well RHS (FlexibleSolver may modify RHS in-place).
+            tmp_wRes_.emplace(nWell);
+        }
     }
 };
 
