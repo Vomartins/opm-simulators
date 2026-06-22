@@ -421,8 +421,8 @@ if(CUDA_FOUND OR hip_FOUND)
   # GPU system solver headers (coupled reservoir+well)
   if(CUDA_FOUND OR CONVERT_CUDA_TO_HIP)
     list(APPEND PUBLIC_HEADER_FILES
+      opm/simulators/linalg/gpusystem/GpuSystemBackend.hpp
       opm/simulators/linalg/gpusystem/GpuSystemTypes.hpp
-      opm/simulators/linalg/gpusystem/GpuSystemPreconditioner.hpp
       opm/simulators/linalg/gpusystem/GpuSystemPreconditionerFactory.hpp
       opm/simulators/linalg/gpusystem/ISTLSolverGPUSystem.hpp)
   endif()

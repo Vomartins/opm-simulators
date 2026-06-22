@@ -19,9 +19,10 @@
 // -------------------------------------------------------------------------
 // Includes — GPU system types and preconditioner
 // -------------------------------------------------------------------------
-#include <opm/simulators/linalg/gpusystem/GpuSystemPreconditioner.hpp>
+#include <opm/simulators/linalg/gpusystem/GpuSystemBackend.hpp>
 #include <opm/simulators/linalg/gpusystem/GpuSystemPreconditionerFactory.hpp>
 #include <opm/simulators/linalg/gpusystem/GpuSystemTypes.hpp>
+#include <opm/simulators/linalg/system/SystemPreconditioner.hpp>
 
 // CPU well matrix merging
 #include <opm/simulators/linalg/system/SystemTypes.hpp>
@@ -68,7 +69,7 @@ namespace Opm::gpusystem
 // --------------------------------------------------------------------------
 // ISTLSolverGPUSystem
 //
-// GPU analogue of ISTLSolverSystem.  Runs the 3-stage GpuSystemPreconditioner
+// GPU analogue of ISTLSolverSystem.  Runs the 3-stage SystemPreconditioner<GpuSystemBackend>
 // inside a Dune::FlexibleSolver over the coupled (res+well) GPU system.
 //
 // Derive from AbstractISTLSolver<SparseMatrixAdapter, Vector> directly; all GPU infrastructure
@@ -221,7 +222,7 @@ public:
         ++solveCount_;
 
         // Forward report pointer to the system preconditioner for timing.
-        if (auto* p = dynamic_cast<GpuSystemPreconditioner<Scalar>*>(sysPrecond_))
+        if (auto* p = dynamic_cast<SystemPreconditioner<GpuSystemBackend<Scalar>>*>(sysPrecond_))
             p->setSimulatorReportPointer(report_ptr);
 
         const std::size_t nRes  = gpuA_->N() * numResDofs;

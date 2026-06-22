@@ -19,7 +19,7 @@
 #ifndef OPM_ISTLSOLVERSYSTEM_HEADER_INCLUDED
 #define OPM_ISTLSOLVERSYSTEM_HEADER_INCLUDED
 
-#include <opm/simulators/linalg/system/SystemTypes.hpp>
+#include <opm/simulators/linalg/system/CpuSystemBackend.hpp>
 #include <opm/simulators/linalg/system/SystemPreconditionerFactory.hpp>
 #include <opm/simulators/linalg/system/WellMatrixMerger.hpp>
 
@@ -95,7 +95,7 @@ public:
         OPM_TIMEBLOCK(istlSolverSolve);
         ++this->solveCount_;
 
-        using SysPrecSeq = SystemPreconditioner<Scalar, SeqResOperatorT<Scalar>>;
+        using SysPrecSeq = SystemPreconditioner<CpuSystemBackend<Scalar, SeqResOperatorT<Scalar>>>;
         if (auto* p = dynamic_cast<SysPrecSeq*>(sysPrecond_)) {
             p->setSimulatorReportPointer(report_ptr);
         }
@@ -155,9 +155,9 @@ private:
 
     using SysSolverType = Dune::InverseOperator<SystemVector<Scalar>, SystemVector<Scalar>>;
     using SysPrecondType = Dune::PreconditionerWithUpdate<SystemVector<Scalar>, SystemVector<Scalar>>;
-    using SeqSysPrecondType = SystemPreconditioner<Scalar, SeqResOperator<Scalar>>;
+    using SeqSysPrecondType = SystemPreconditioner<CpuSystemBackend<Scalar, SeqResOperatorT<Scalar>>>;
 #if HAVE_MPI
-    using ParSysPrecondType = SystemPreconditioner<Scalar, ParResOperator<Scalar>, ParResComm>;
+    using ParSysPrecondType = SystemPreconditioner<CpuSystemBackend<Scalar, ParResOperatorT<Scalar>, ParResComm>>;
 #endif
     SysSolverType* sysSolver_ = nullptr;
     SysPrecondType* sysPrecond_ = nullptr;

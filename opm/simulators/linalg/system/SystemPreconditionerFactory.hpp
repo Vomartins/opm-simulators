@@ -19,6 +19,7 @@
 #ifndef OPM_SYSTEMPRECONDITIONERFACTORY_HEADER_INCLUDED
 #define OPM_SYSTEMPRECONDITIONERFACTORY_HEADER_INCLUDED
 
+#include <opm/simulators/linalg/system/CpuSystemBackend.hpp>
 #include <opm/simulators/linalg/system/MultiComm.hpp>
 #include <opm/simulators/linalg/system/SystemPreconditioner.hpp>
 #include <opm/simulators/linalg/PreconditionerFactory.hpp>
@@ -69,7 +70,8 @@ void addSystemCprSeq()
                               return sysWeightCalc()[Dune::Indices::_0];
                           };
                       }
-                      return std::make_shared<SystemPreconditioner<Scalar, SeqResOperator<Scalar>>>(
+                      using BackendT = CpuSystemBackend<Scalar, SeqResOperatorT<Scalar>>;
+                      return std::make_shared<SystemPreconditioner<BackendT>>(
                           op.getmat(), resWeightCalc, pressureIndex, prm);
                   });
 }
@@ -98,7 +100,8 @@ void addSystemCprParSeq()
                               return sysWeightCalc()[Dune::Indices::_0];
                           };
                       }
-                      return std::make_shared<SystemPreconditioner<Scalar, SeqResOperator<Scalar>>>(
+                      using BackendT = CpuSystemBackend<Scalar, SeqResOperatorT<Scalar>>;
+                      return std::make_shared<SystemPreconditioner<BackendT>>(
                           op.getmat(), resWeightCalc, pressureIndex, prm);
                   });
 }
@@ -123,7 +126,8 @@ void addSystemCprPar()
                           };
                       }
                       const auto& resComm = comm[Dune::Indices::_0];
-                      return std::make_shared<SystemPreconditioner<Scalar, ParResOperator<Scalar>, ParResComm>>(
+                      using BackendT = CpuSystemBackend<Scalar, ParResOperatorT<Scalar>, ParResComm>;
+                      return std::make_shared<SystemPreconditioner<BackendT>>(
                           op.getmat(), resWeightCalc, pressureIndex, prm, resComm);
                   });
 }

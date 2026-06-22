@@ -43,19 +43,21 @@ template class ::Opm::PreconditionerFactory<Dune::MatrixAdapter<::Opm::gpuistl::
 
 // GPU system (coupled reservoir+well) operator.
 //
-// Suppress implicit instantiation of GpuSystemPreconditioner<T> in this GPU
-// translation unit.  Its methods call FlexibleSolverWrapper, whose definitions
-// live in FlexibleSolverWrapper.cpp (compiled separately).  Without the extern
-// declaration the GPU compiler would instantiate GpuSystemPreconditioner<T>
+// Suppress implicit instantiation of SystemPreconditioner<GpuSystemBackend<T>>
+// in this GPU translation unit.  Its methods call FlexibleSolverWrapper, whose
+// definitions live in FlexibleSolverWrapper.cpp (compiled separately).  Without
+// the extern declaration the GPU compiler would instantiate the preconditioner
 // here, emitting unsatisfied references to FlexibleSolverWrapper.  The explicit
 // instantiation is provided by GpuSystemPreconditioner.cpp (plain C++), which
 // resolves both sets of references through the same libopmsimulators archive.
-namespace Opm::gpusystem {
-    extern template class GpuSystemPreconditioner<double>;
+#include <opm/simulators/linalg/gpusystem/GpuSystemBackend.hpp>
+#include <opm/simulators/linalg/system/SystemPreconditioner.hpp>
+namespace Opm {
+    extern template class SystemPreconditioner<gpusystem::GpuSystemBackend<double>>;
 #if FLOW_INSTANTIATE_FLOAT
-    extern template class GpuSystemPreconditioner<float>;
+    extern template class SystemPreconditioner<gpusystem::GpuSystemBackend<float>>;
 #endif
-} // namespace Opm::gpusystem
+} // namespace Opm
 
 template class ::Opm::PreconditionerFactory<Opm::gpusystem::GpuSystemSeqOpT<double>,
                                             ::Opm::CommSeq>;

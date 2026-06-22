@@ -18,14 +18,12 @@
 
 #include <opm/simulators/linalg/FlexibleSolver_impl.hpp>
 #include <opm/simulators/linalg/PreconditionerFactory_impl.hpp>
-#include <opm/simulators/linalg/gpusystem/GpuSystemPreconditioner.hpp>
+#include <opm/simulators/linalg/gpusystem/GpuSystemBackend.hpp>
+#include <opm/simulators/linalg/system/SystemPreconditioner.hpp>
 #include <opm/simulators/linalg/gpusystem/GpuSystemPreconditionerFactory.hpp>
 
-// Explicit instantiations for GpuSystemPreconditioner and the CPU well
-// sub-solver (Dune::FlexibleSolver over the well-only operator).
-//
-// GpuSystemPreconditioner is header-only (all methods inline), so only
-// the class itself and the CPU sub-solver need explicit instantiation here.
+// Explicit instantiations for the GPU backend of the unified
+// SystemPreconditioner and the CPU well sub-solver.
 //
 // FlexibleSolverWrapper for the reservoir (GPU) sub-solvers and the outer
 // Dune::FlexibleSolver<GpuSystemSeqOpT<T>> are instantiated in
@@ -35,8 +33,8 @@
 // GpuSystemMatrixT does not satisfy that requirement.
 
 #define INSTANTIATE_GPU_SYSTEM(T)                                               \
-    /* GpuSystemPreconditioner (3-stage GPU+CPU preconditioner) */              \
-    template class Opm::gpusystem::GpuSystemPreconditioner<T>;                  \
+    /* Unified SystemPreconditioner with GPU backend */                         \
+    template class Opm::SystemPreconditioner<Opm::gpusystem::GpuSystemBackend<T>>; \
     /* CPU well sub-solver: FlexibleSolver over the D (well×well) block */      \
     template class Dune::FlexibleSolver<                                         \
         Dune::MatrixAdapter<Opm::WWMatrixT<T>,                                  \

@@ -16,8 +16,9 @@
 
 #pragma once
 
+#include <opm/simulators/linalg/gpusystem/GpuSystemBackend.hpp>
 #include <opm/simulators/linalg/gpusystem/GpuSystemTypes.hpp>
-#include <opm/simulators/linalg/gpusystem/GpuSystemPreconditioner.hpp>
+#include <opm/simulators/linalg/system/SystemPreconditioner.hpp>
 
 #include <opm/simulators/linalg/system/SystemTypes.hpp>
 #include <opm/simulators/linalg/PreconditionerFactory.hpp>
@@ -56,13 +57,6 @@ using GpuSystemSeqOpT = Dune::MatrixAdapter<
 
 // --------------------------------------------------------------------------
 // is_gpu_operator specialisation for GpuSystemSeqOpT
-//
-// GpuSystemSeqOpT::domain_type is GpuSystemVectorT, not GpuVector, so the
-// primary is_gpu_operator template (which checks domain_type == GpuVector)
-// would return false.  That causes FlexibleSolver_impl.hpp to attempt
-// UMFPack<GpuSystemMatrixT>, which has no domain_type and yields a hard
-// compile error.  This specialisation opts the type into the GPU operator
-// code path, skipping the UMFPACK branch.
 // --------------------------------------------------------------------------
 namespace Opm {
 
@@ -79,12 +73,11 @@ namespace Opm::gpusystem {
 // detail::addGpuSystemCprSeq
 //
 // Registers the "gpu_system_cpr" creator in the PreconditionerFactory for
-// GpuSystemSeqOpT<Scalar>.  Mirrors detail::addSystemCprSeq() in
-// system/SystemPreconditionerFactory.hpp.
+// GpuSystemSeqOpT<Scalar>.
 //
 // The system-level weight calculator returns a GpuSystemVectorT; the
-// GpuSystemPreconditioner expects a reservoir-only GpuVector, so the .res
-// field is extracted in a wrapping lambda.
+// SystemPreconditioner<GpuSystemBackend> expects a reservoir-only GpuVector,
+// so the .res field is extracted in a wrapping lambda.
 //
 // cpuD (the CPU copy of the well-well block D) is retrieved via
 // GpuSystemMatrixT::getCpuD(), where it is stored alongside the GPU block
@@ -101,6 +94,7 @@ void addGpuSystemCprSeq()
     using V      = GpuSystemVectorT<Scalar>;
     using GpuVec = gpuistl::GpuVector<Scalar>;
     using P      = Opm::PropertyTree;
+    using BackendT = GpuSystemBackend<Scalar>;
 
     F::addCreator("gpu_system_cpr",
         [](const O& op, const P& prm,
@@ -114,8 +108,8 @@ void addGpuSystemCprSeq()
                 };
             }
             const auto& S = op.getmat();
-            return std::make_shared<GpuSystemPreconditioner<Scalar>>(
-                S, S.getCpuD(), resWeightCalc,
+            return std::make_shared<SystemPreconditioner<BackendT>>(
+                S, resWeightCalc,
                 static_cast<int>(pressureIndex), prm);
         });
 }
@@ -125,10 +119,7 @@ void addGpuSystemCprSeq()
 
 // --------------------------------------------------------------------------
 // Full specialisations of Opm::StandardPreconditioners for the GPU system
-// operator.  Must live in namespace Opm to match the primary template.
-// Partial specialisations would be ambiguous with the is_gpu_operator_v guard
-// in StandardPreconditioners_gpu_serial.hpp, so full specialisations are used,
-// following the same pattern as system/SystemPreconditionerFactory.hpp.
+// operator.
 // --------------------------------------------------------------------------
 namespace Opm
 {
