@@ -93,10 +93,10 @@ initialize([[maybe_unused]] bool use_gpu_backend)
     if (use_gpu_backend) {
         OPM_HYPRE_SAFE_CALL(HYPRE_SetMemoryLocation(HYPRE_MEMORY_DEVICE));
         OPM_HYPRE_SAFE_CALL(HYPRE_SetExecutionPolicy(HYPRE_EXEC_DEVICE));
-        // use hypre's SpGEMM instead of vendor implementation
-        OPM_HYPRE_SAFE_CALL(HYPRE_SetSpGemmUseVendor(false));
-        // use cuRand for PMIS
-        OPM_HYPRE_SAFE_CALL(HYPRE_SetUseGpuRand(1));
+        // use vendor (rocSPARSE/cuSPARSE) SpGEMM for coarse grid construction
+        OPM_HYPRE_SAFE_CALL(HYPRE_SetSpGemmUseVendor(true));
+        // use CPU random numbers for PMIS coarsening (GPU rand can give poor coarsening on HIP)
+        OPM_HYPRE_SAFE_CALL(HYPRE_SetUseGpuRand(0));
         OPM_HYPRE_SAFE_CALL(HYPRE_DeviceInitialize());
         OPM_HYPRE_SAFE_CALL(HYPRE_PrintDeviceInfo());
     } else
