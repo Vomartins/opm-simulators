@@ -26,10 +26,12 @@
 #include <opm/simulators/linalg/ISTLSolverGpuBridge.hpp>
 #endif
 
+#if HAVE_CUDA
 #if USE_HIP
 #include <opm/simulators/linalg/gpuistl_hip/ISTLSolverGPUISTL.hpp>
-#elif HAVE_CUDA
+#else
 #include <opm/simulators/linalg/gpuistl/ISTLSolverGPUISTL.hpp>
+#endif
 #include <opm/simulators/linalg/gpusystem/ISTLSolverGPUSystem.hpp>
 #endif
 
