@@ -19,12 +19,17 @@
 #ifndef OPM_ISTLSOLVERSYSTEM_HEADER_INCLUDED
 #define OPM_ISTLSOLVERSYSTEM_HEADER_INCLUDED
 
+#include "SystemTypes.hpp"
+#include <dune/common/matrixconcepts.hh>
+#include <fmt/core.h>
 #include <opm/simulators/linalg/system/CpuSystemBackend.hpp>
 #include <opm/simulators/linalg/system/SystemPreconditionerFactory.hpp>
 #include <opm/simulators/linalg/system/WellMatrixMerger.hpp>
 
 #include <opm/simulators/linalg/FlexibleSolver.hpp>
 #include <opm/simulators/linalg/ISTLSolver.hpp>
+#include <iostream>
+#include <fstream>
 
 namespace Opm
 {
@@ -39,6 +44,9 @@ protected:
     using Matrix = typename SparseMatrixAdapter::IstlMatrix;
     using Simulator = GetPropType<TypeTag, Properties::Simulator>;
     using Indices = GetPropType<TypeTag, Properties::Indices>;
+
+    mutable int localTimeStep_ = 0;
+    mutable int lastReportStep_ = -1;
 
     // Compile-time validation: SystemPreconditionerFactory and related types
     // are hardcoded for standard 3-phase blackoil (3 reservoir equations, 4 well equations).
@@ -90,6 +98,28 @@ public:
         prepareSystemSolver();
     }
 
+    void printSimulatorVector(const SystemVector<Scalar>& vec,const std::string& name)
+    {
+        std::cout << name << ": " << std::endl;
+        for (std::size_t i = 0; i < 10; ++i) {
+            const auto& block = vec[_0][i];
+            std::cout << "res[" << i << "] = ";
+            for (int c = 0; c < block.size(); ++c){
+                std::cout << block[c] << " ";
+            }
+            std::cout << std::endl;
+        }
+        for (std::size_t i = 0; i < 10; ++i) {
+            const auto& block = vec[_1][i];
+            std::cout << "well[" << i << "] = ";
+            for (int c = 0; c < block.size(); ++c){
+                std::cout << block[c] << " ";
+            }
+            std::cout << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
     bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr) override
     {
         OPM_TIMEBLOCK(istlSolverSolve);
@@ -117,6 +147,154 @@ public:
         this->iterations_ = result.iterations;
 
         x = sysX_[_0];
+
+        // -----------------------------------------------------
+        // Preconditioned matrix construction for experiment 1
+        // -----------------------------------------------------
+
+        const auto currentStep = this->simulator_.episodeIndex();
+        const auto totalSteps = this->simulator_.vanguard().schedule().size();
+        // const auto timeStep = this->simulator_.timeStepIndex();
+        const auto newtonIter = this->simulator_.problem().iterationContext().iteration();
+
+        //std::cout << "  Total steps: " << totalSteps << std::endl;
+
+        if (currentStep != lastReportStep_) {
+            localTimeStep_ = 0;
+            lastReportStep_ = currentStep;
+        } else {
+            if (newtonIter == 0) {
+                ++localTimeStep_;
+            }
+        }
+
+        std::cout << "Report step: " << currentStep << std::endl;
+        //std::cout << "Time step: " << timeStep << std::endl;
+        std::cout << "Newton iteration: " << newtonIter << std::endl;
+
+        if (localTimeStep_ == 0 && newtonIter == 0) {
+            const auto numOfMatrices = 6;
+            const auto stepSizeMatrices = totalSteps / numOfMatrices;
+            //std::cout << stepSizeMatrices << std::endl;
+            auto saveMatrix = (currentStep + 1) % stepSizeMatrices + 1;
+            if (currentStep == 0) saveMatrix = 1;
+            if (saveMatrix == 1) {
+                std::cout << "  Save matrix: " << saveMatrix << std::endl;
+                std::cout << "      Report step: " << currentStep << std::endl;
+                //std::cout << "      Time step: " << timeStep << std::endl;
+                std::cout << "      Newton iteration: " << newtonIter << std::endl;
+
+                size_t resBlockSize = sysRhs_[_0][1].size();
+                size_t wellBlockSize = sysRhs_[_1][1].size();
+
+                size_t N = numRes * numResDofs + numWell * numWellDofs;
+
+                Dune::DynamicMatrix<Scalar> AM(N, N, 0.0);
+
+                auto storeColumns = [&](const SystemVector<Scalar>& col, size_t idx)
+                {
+                    size_t row = 0;
+                    for (size_t i = 0; i< col[_0].size(); ++i){
+                        for (int c = 0; c < numResDofs; ++c){
+                            AM[row++][idx] = col[_0][i][c];
+                        }
+                    }
+                    for (size_t i = 0; i< col[_1].size(); ++i){
+                        for (int c = 0; c < numWellDofs; ++c){
+                            AM[row++][idx] = col[_1][i][c];
+                        }
+                    }
+                };
+
+                std::cout << "Number of Res Blocks:" << numRes << std::endl;
+                std::cout << "  Blocks size:" << numResDofs << std::endl;
+                std::cout << "Number of Well Blocks:" << numWell << std::endl;
+                std::cout << "  Blocks size:" << numWellDofs << std::endl;
+
+                std::cout << "Total DOFs: " << N << std::endl;
+
+                size_t j_count = 0;
+
+                for (int j = 0; j < numRes; ++j)
+                {
+                    for (int k = 0; k < numResDofs; ++k)
+                    {
+                        SystemVector<Scalar> estd = sysRhs_;
+                        estd = 0.0;
+                        estd[_0][j][k] = 1.0;
+
+                        SystemVector<Scalar> Mcol = sysRhs_;
+                        Mcol = 0.0;
+
+                        sysPrecond_->apply(Mcol, estd);
+
+                        //printSimulatorVector(Mcol, "M^{-1} column");
+
+                        SystemVector<Scalar> AMcol = Mcol;
+                        AMcol = 0.0;
+                        sysMatrix_.mv(Mcol, AMcol); // AMcol = A * col = A * M^{-1} * e
+
+                        //printSimulatorVector(AMcol, "AM^{-1} column");
+                        if (j_count % 1000 == 0) std::cerr << j*numResDofs + k << " ";
+
+                        storeColumns(AMcol, j*numResDofs + k);
+
+                        ++j_count;
+                    }
+                }
+
+                std::cout << std::endl;
+
+                for (int j = 0; j < numWell; ++j)
+                {
+                    for (int k = 0; k < numWellDofs; ++k)
+                    {
+                        SystemVector<Scalar> estd = sysRhs_;
+                        estd = 0.0;
+                        estd[_1][j][k] = 1.0;
+
+                        SystemVector<Scalar> Mcol = sysRhs_;
+                        Mcol = 0.0;
+                        sysPrecond_->apply(Mcol, estd);
+
+                        SystemVector<Scalar> AMcol = Mcol;
+                        AMcol = 0.0;
+                        sysMatrix_.mv(Mcol, AMcol);
+
+                        if (j_count % 1000 == 0) std::cerr << (numRes*numResDofs) + j*numWellDofs + k << " ";
+
+                        storeColumns(AMcol, (numRes*numResDofs) + j*numWellDofs + k);
+
+                        ++j_count;
+                    }
+                }
+
+                std::cout << std::endl;
+
+                std::cout << "j_count: " << j_count << std::endl;
+
+                std::ofstream file(std::format("AM_inv_{}.mtx", currentStep));
+                file << "%%MatrixMarket matrix array real general\n";
+                file << N << " " << N << "\n";
+                // MM array format is column-major
+                for (size_t col = 0; col < N; ++col) {
+                    for (size_t row = 0; row < N; ++row) {
+                        file << AM[row][col] << "\n";
+                        if (row % 1000 == 0 && col % 1000 == 0 && row == col) std::cout << row << " " << col << " /" << std::endl;
+                    }
+                }
+                file << std::flush;
+                file.close();
+                std::cerr << "File written." << std::endl;
+                std::cout << std::endl;
+            }
+        }
+
+
+        // std::exit(1);
+
+
+
 
         return this->checkConvergence(result);
     }
@@ -221,29 +399,9 @@ private:
 
     void refreshSystemSolverForChangedWellStructure(const Opm::PropertyTree& prm)
     {
-        if (!sysInitialized_ || !sysPrecond_) {
-            createSystemSolver(prm);
-            return;
-        }
-
-#if HAVE_MPI
-        if (this->comm_->communicator().size() > 1) {
-            if (auto* precond = dynamic_cast<ParSysPrecondType*>(sysPrecond_)) {
-                precond->updateForChangedWellStructure();
-            } else
-            { // Rebuild the parallel solver if the parallel preconditioner cannot be updated in-place.
-                createSystemSolver(prm);
-            }
-            return;
-        }
-#endif
-
-        if (auto* precond = dynamic_cast<SeqSysPrecondType*>(sysPrecond_)) {
-            precond->updateForChangedWellStructure();
-        } else
-        { // Rebuild the solver if the sequential preconditioner cannot be updated in-place
-            createSystemSolver(prm);
-        }
+        // When the well structure changes, rebuild the system solver from scratch.
+        // SystemPreconditioner does not support incremental well-structure updates.
+        createSystemSolver(prm);
     }
 
     void createSystemSolver(const Opm::PropertyTree& prm)

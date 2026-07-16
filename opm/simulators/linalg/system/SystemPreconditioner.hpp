@@ -45,11 +45,17 @@ struct SimulatorReportSingle;
 template<typename Scalar>
 using SeqResOperator = Dune::MatrixAdapter<RRMatrix<Scalar>, ResVector<Scalar>, ResVector<Scalar>>;
 
+// T-suffixed aliases for Backend traits usage.
+template<typename Scalar> using SeqResOperatorT = SeqResOperator<Scalar>;
+
 #if HAVE_MPI
 using ParResComm = Dune::OwnerOverlapCopyCommunication<int, int>;
 template<typename Scalar>
 using ParResOperator = Dune::OverlappingSchwarzOperator<RRMatrix<Scalar>, ResVector<Scalar>, ResVector<Scalar>, ParResComm>;
+
+template<typename Scalar> using ParResOperatorT = ParResOperator<Scalar>;
 #endif
+
 
 // --------------------------------------------------------------------------
 // SystemPreconditioner

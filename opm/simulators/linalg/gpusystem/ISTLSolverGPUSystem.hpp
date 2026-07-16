@@ -230,7 +230,7 @@ public:
 
         // Build GPU system RHS.
         // Reservoir part: already uploaded during prepare().
-        // Well part: upload from CPU merged residual.
+        // Well part: zero (well equations enter through B*x coupling).
         //
         // NOTE: GpuVector::operator=(const GpuVector&) does NOT resize — it only
         // memcpy-s when both sides are non-zero and the same size.  Use emplace()
@@ -240,7 +240,7 @@ public:
         if (!sysRhs_ || sysRhs_->res.dim() != nRes || sysRhs_->well.dim() != nWell)
             sysRhs_.emplace(nRes, nWell);
         sysRhs_->res = *gpuRhs_;
-        sysRhs_->well.copyFromHost(mergedWellResidual_);
+        sysRhs_->well = Scalar(0);
 
         // Zero-initialise solution vector.
         if (!sysX_ || sysX_->res.dim() != nRes || sysX_->well.dim() != nWell)
@@ -304,10 +304,15 @@ private:
     std::optional<GpuSparseMatrix>                         gpuD_;
 
     // CPU merged well matrices — owned storage; GpuSystemMatrixT points here.
+    // Per-well B/C/D blocks collected from the well model.
+    std::vector<WRMatrixT<Scalar>> wellBMatrices_;
+    std::vector<RWMatrixT<Scalar>> wellCMatrices_;
+    std::vector<WWMatrixT<Scalar>> wellDMatrices_;
+    Opm::SparseTable<int>          wellCells_;
+
     WRMatrixT<Scalar>   mergedB_;
     RWMatrixT<Scalar>   mergedC_;
     WWMatrixT<Scalar>   mergedD_;
-    WellVectorT<Scalar> mergedWellResidual_;
     std::vector<int>    wellDofOffsets_;
     WellVectorT<Scalar> cpuWellSolution_;
 
@@ -332,7 +337,7 @@ private:
 
     // State
     bool        sysInitialized_      = false;
-    std::size_t cachedWellDofs_      = 0;
+    WellMatrixStructure cachedWellStructure_;
     int         lastSeenIterations_  = 0;
     int         solveCount_          = 0;
 
@@ -370,33 +375,37 @@ private:
         }
 
         // 3. Collect and merge per-well B/C/D matrices on CPU.
-        std::vector<WRMatrixT<Scalar>> b_matrices;
-        std::vector<RWMatrixT<Scalar>> c_matrices;
-        std::vector<WWMatrixT<Scalar>> d_matrices;
-        std::vector<std::vector<int>>  wcells;
-        std::vector<WellVectorT<Scalar>> well_residuals;
+        wellBMatrices_.clear();
+        wellCMatrices_.clear();
+        wellDMatrices_.clear();
+        wellCells_.clear();
 
         simulator_.problem().wellModel().addBCDMatrix(
-            b_matrices, c_matrices, d_matrices, wcells, well_residuals);
+            wellBMatrices_, wellCMatrices_, wellDMatrices_, wellCells_);
 
-        WellMatrixMerger<Scalar> merger(M.N());
-        for (std::size_t i = 0; i < b_matrices.size(); ++i) {
-            merger.addWell(b_matrices[i], c_matrices[i], d_matrices[i],
-                           wcells[i], static_cast<int>(i),
-                           "Well" + std::to_string(i + 1), well_residuals[i]);
+        const WellMatrixMerger<Scalar> merger(
+            M.N(), wellBMatrices_, wellCMatrices_, wellDMatrices_, wellCells_);
+
+        const bool localStructureChanged = !sysInitialized_
+            || !merger.hasSameStructure(cachedWellStructure_);
+        const bool needRebuild = localStructureChanged;
+
+        if (needRebuild) {
+            merger.buildMatrices(mergedB_, mergedC_, mergedD_);
+            cachedWellStructure_ = merger.buildStructure();
+
+            // Compute well DOF offsets for getWellSolution().
+            wellDofOffsets_.clear();
+            wellDofOffsets_.reserve(wellDMatrices_.size() + 1);
+            int offset = 0;
+            for (const auto& D : wellDMatrices_) {
+                wellDofOffsets_.push_back(offset);
+                offset += static_cast<int>(D.N());
+            }
+            wellDofOffsets_.push_back(offset);
+        } else {
+            merger.updateValues(mergedB_, mergedC_, mergedD_);
         }
-        merger.finalize();
-
-        mergedWellResidual_ = std::move(merger.getMergedWellResidual());
-        wellDofOffsets_     = std::move(merger.getWellDofOffsets());
-
-        const std::size_t newWellDofs = merger.getMergedD().N();
-        const bool needRebuild = !sysInitialized_ || (newWellDofs != cachedWellDofs_);
-
-        mergedB_ = std::move(merger.getMergedB());
-        mergedC_ = std::move(merger.getMergedC());
-        mergedD_ = std::move(merger.getMergedD());
-        cachedWellDofs_ = newWellDofs;
 
         // 4. Upload well matrices to GPU.
         //

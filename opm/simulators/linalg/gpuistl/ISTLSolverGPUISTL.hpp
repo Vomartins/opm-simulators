@@ -125,13 +125,24 @@ public:
         m_propertyTree = setupPropertyTree(m_parameters,
                                            Parameters::IsSet<Parameters::LinearSolverMaxIter>(),
                                            Parameters::IsSet<Parameters::LinearSolverReduction>());
-        // When UseSystemSolver=true, the well matrices are handled by the system
-        // solver (ISTLSolverGPUSystem) and must NOT be added to the reservoir matrix.
+        // When using the system solver (gpu_system_cpr), well matrices are handled
+        // by ISTLSolverGPUSystem and must NOT be added to the reservoir matrix.
         // For the standard GPU solver, well contributions must be folded in.
-        if (!Parameters::Get<Parameters::MatrixAddWellContributions>()
-            && !Parameters::Get<Parameters::UseSystemSolver>()) {
-            OPM_THROW(std::logic_error, "Well operators are currently not supported for the GPU backend. "
-            "Use --matrix-add-well-contributions=true to add well contributions to the matrix instead.");
+        {
+            auto linSolverConf = Parameters::Get<Parameters::LinearSolver>();
+            bool isSystemSolver = (linSolverConf == "system_cpr" || linSolverConf == "gpu_system_cpr");
+            if (!isSystemSolver) {
+                try {
+                    auto prm = setupPropertyTree(m_parameters, false, false);
+                    auto ptype = prm.get<std::string>("preconditioner.type", "");
+                    isSystemSolver = (ptype == "system_cpr" || ptype == "gpu_system_cpr");
+                } catch (...) {}
+            }
+            if (!Parameters::Get<Parameters::MatrixAddWellContributions>()
+                && !isSystemSolver) {
+                OPM_THROW(std::logic_error, "Well operators are currently not supported for the GPU backend. "
+                "Use --matrix-add-well-contributions=true to add well contributions to the matrix instead.");
+            }
         }
 
         Opm::detail::printLinearSolverParameters(m_parameters, m_propertyTree, simulator.gridView().comm());

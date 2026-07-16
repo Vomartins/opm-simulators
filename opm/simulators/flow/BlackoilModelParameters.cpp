@@ -243,8 +243,6 @@ void BlackoilModelParameters<Scalar>::registerParameters()
     Parameters::Register<Parameters::MatrixAddWellContributions>
         ("Explicitly specify the influences of wells between cells in "
          "the Jacobian and preconditioner matrices");
-    Parameters::Register<Parameters::UseSystemSolver>
-        ("Use the coupled reservoir-well system solver");
     Parameters::Register<Parameters::EnableWellOperabilityCheck>
         ("Enable the well operability checking");
     Parameters::Register<Parameters::EnableWellOperabilityCheckIter>

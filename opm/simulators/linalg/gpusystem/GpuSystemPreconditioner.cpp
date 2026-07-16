@@ -34,12 +34,7 @@
 
 #define INSTANTIATE_GPU_SYSTEM(T)                                               \
     /* Unified SystemPreconditioner with GPU backend */                         \
-    template class Opm::SystemPreconditioner<Opm::gpusystem::GpuSystemBackend<T>>; \
-    /* CPU well sub-solver: FlexibleSolver over the D (well×well) block */      \
-    template class Dune::FlexibleSolver<                                         \
-        Dune::MatrixAdapter<Opm::WWMatrixT<T>,                                  \
-                            Opm::WellVectorT<T>,                                \
-                            Opm::WellVectorT<T>>>;
+    template class Opm::SystemPreconditioner<Opm::gpusystem::GpuSystemBackend<T>>;
 
 INSTANTIATE_GPU_SYSTEM(double)
 

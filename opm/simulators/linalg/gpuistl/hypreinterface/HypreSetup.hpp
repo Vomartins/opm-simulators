@@ -47,6 +47,10 @@
 namespace Opm::gpuistl::HypreInterface
 {
 
+// Import types from linalg::HypreInterface used throughout this header.
+using linalg::HypreInterface::ParallelInfo;
+using linalg::HypreInterface::SparsityPattern;
+
 // GPU-specific helper functions
 template <typename T, bool ForceLegacy>
 linalg::HypreInterface::SparsityPattern
@@ -652,6 +656,8 @@ computeRowIndexesWithMappingGpu(const GpuSparseMatrixWrapper<T, ForceLegacy>& gp
     }
     return row_indexes;
 }
+
+#endif // HYPRE_USING_CUDA || HYPRE_USING_HIP
 
 } // namespace Opm::gpuistl::HypreInterface
 

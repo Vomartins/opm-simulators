@@ -72,7 +72,7 @@ namespace Opm::gpusystem {
 // --------------------------------------------------------------------------
 // detail::addGpuSystemCprSeq
 //
-// Registers the "gpu_system_cpr" creator in the PreconditionerFactory for
+// Registers the "system_cpr" creator in the PreconditionerFactory for
 // GpuSystemSeqOpT<Scalar>.
 //
 // The system-level weight calculator returns a GpuSystemVectorT; the
@@ -96,7 +96,7 @@ void addGpuSystemCprSeq()
     using P      = Opm::PropertyTree;
     using BackendT = GpuSystemBackend<Scalar>;
 
-    F::addCreator("gpu_system_cpr",
+    F::addCreator("system_cpr",
         [](const O& op, const P& prm,
            const std::function<V()>& sysWeightCalc,
            std::size_t pressureIndex) {

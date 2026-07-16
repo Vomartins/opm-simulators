@@ -89,10 +89,10 @@ public:
     const WWMatrix<Scalar>* D = nullptr;  // (1,1) well
 
     // Named sub-block accessors (matches GpuSystemMatrixT convention).
-    const RRMatrixT<Scalar>& getRR()  const { return *A; }
-    const RWMatrixT<Scalar>& getRW()  const { return *C; }
-    const WRMatrixT<Scalar>& getWR()  const { return *B; }
-    const WWMatrixT<Scalar>& getWW()  const { return *D; }
+    const RRMatrix<Scalar>& getRR()  const { return *A; }
+    const RWMatrix<Scalar>& getRW()  const { return *C; }
+    const WRMatrix<Scalar>& getWR()  const { return *B; }
+    const WWMatrix<Scalar>& getWW()  const { return *D; }
 
     // Sub-block access: S[_0][_0], S[_0][_1], S[_1][_0], S[_1][_1]
     inline SystemMatrixRow0<Scalar> operator[](Dune::index_constant<0>) const;
@@ -151,6 +151,17 @@ SystemMatrixRow0<Scalar> SystemMatrix<Scalar>::operator[](Dune::index_constant<0
 template<typename Scalar>
 SystemMatrixRow1<Scalar> SystemMatrix<Scalar>::operator[](Dune::index_constant<1>) const
 { return {*B, *D}; }
+
+// Aliases with T suffix — used by Backend traits (CpuSystemBackend, GpuSystemBackend)
+// and SystemPreconditioner to keep template-parameter naming uniform.
+template<typename Scalar> using RRMatrixT      = RRMatrix<Scalar>;
+template<typename Scalar> using RWMatrixT      = RWMatrix<Scalar>;
+template<typename Scalar> using WRMatrixT      = WRMatrix<Scalar>;
+template<typename Scalar> using WWMatrixT      = WWMatrix<Scalar>;
+template<typename Scalar> using ResVectorT     = ResVector<Scalar>;
+template<typename Scalar> using WellVectorT    = WellVector<Scalar>;
+template<typename Scalar> using SystemVectorT  = SystemVector<Scalar>;
+template<typename Scalar> using SystemMatrixT  = SystemMatrix<Scalar>;
 
 } // namespace Opm
 

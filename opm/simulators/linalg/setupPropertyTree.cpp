@@ -298,7 +298,7 @@ setupPropertyTree(FlowLinearSolverParameters p, // Note: copying the parameters 
     else {
         OPM_THROW(std::invalid_argument,
                 conf + " is not a valid setting for --linear-solver-configuration."
-                " Please use ilu0, dilu, isai, cpr, cprw, cpr_trueimpes, cpr_quasiimpes, cpr_trueimpesanalytic, system_cpr, or gpu_system_cpr");
+                " Please use ilu0, dilu, isai, cpr, cprw, cpr_trueimpes, cpr_quasiimpes, cpr_trueimpesanalytic, or system_cpr");
     }
 
 
@@ -593,8 +593,8 @@ setupGpuSystemCPR([[maybe_unused]] const std::string& conf, const FlowLinearSolv
     prm.put("verbosity", p.linear_solver_verbosity_);
     prm.put("solver", getSolverString(p));
 
-    // Top-level preconditioner: gpu_system_cpr
-    prm.put("preconditioner.type", "gpu_system_cpr"s);
+    // Top-level preconditioner: system_cpr (GPU backend selected by accelerator flag)
+    prm.put("preconditioner.type", "system_cpr"s);
 
     // --- Reservoir smoother (GPU DILU) ---
     prm.put("preconditioner.reservoir_smoother.maxiter", 1);

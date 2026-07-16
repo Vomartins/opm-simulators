@@ -20,6 +20,7 @@
 #include <opm/common/Exceptions.hpp>
 #include <opm/simulators/linalg/FlowLinearSolverParameters.hpp>
 #include <opm/simulators/linalg/PropertyTree.hpp>
+#include <opm/simulators/linalg/system/SystemTypes.hpp>
 
 namespace Opm
 {

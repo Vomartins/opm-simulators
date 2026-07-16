@@ -34,9 +34,9 @@
 #define INSTANTIATE_SYSTEM_PF_PAR(T)                                                                  \
     template class Opm::SystemPreconditioner<                                                          \
         Opm::CpuSystemBackend<T, Opm::ParResOperatorT<T>, Opm::ParResComm>>;                         \
-    template class Dune::FlexibleSolver<Opm::SystemParOpT<T>>;                                        \
-    template Dune::FlexibleSolver<Opm::SystemParOpT<T>>::FlexibleSolver(                               \
-        Opm::SystemParOpT<T>& op,                                                                     \
+    template class Dune::FlexibleSolver<Opm::SystemParOp<T>>;                                          \
+    template Dune::FlexibleSolver<Opm::SystemParOp<T>>::FlexibleSolver(                                \
+        Opm::SystemParOp<T>& op,                                                                      \
         const Opm::SystemComm& comm,                                                                  \
         const Opm::PropertyTree& prm,                                                                 \
         const std::function<Opm::SystemVector<T>()>& weightsCalculator,                              \
