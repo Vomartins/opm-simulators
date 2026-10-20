@@ -131,7 +131,7 @@ public:
         istlSolver_->setMatrix(M);
     }
 
-    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr = nullptr) override
     {
         return istlSolver_->solve(x, report_ptr);
     }

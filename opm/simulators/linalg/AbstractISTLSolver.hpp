@@ -149,7 +149,7 @@ public:
      * - setResidual(Vector& b) or setResidual(const Vector& b)
      * - setMatrix(const SparseMatrixAdapter& M)
      */
-    virtual bool solve(Vector& x,  Opm::SimulatorReportSingle* report_ptr) = 0;
+    virtual bool solve(Vector& x,  Opm::SimulatorReportSingle* report_ptr = nullptr) = 0;
 
     /// Non-owning view of the well solution produced by a coupled system solve.
     struct WellSolutionView {

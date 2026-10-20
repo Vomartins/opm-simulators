@@ -120,7 +120,7 @@ public:
         std::cout << std::endl;
     }
 
-    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr) override
+    bool solve(Vector& x, Opm::SimulatorReportSingle* report_ptr = nullptr) override
     {
         OPM_TIMEBLOCK(istlSolverSolve);
         ++this->solveCount_;
