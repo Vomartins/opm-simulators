@@ -189,6 +189,15 @@ public:
         Dune::Timer stage_timer;
 
         // -------------------------------------------------------------------
+        // Stage 0: Leading well solve
+        // -------------------------------------------------------------------
+        *dwSol_ = Scalar(0);
+        applyWellSolver(*dwSol_, *wRes_);
+        *wSol_ += *dwSol_;
+        C.usmv(Scalar(-1), *dwSol_, *resRes_);     // resRes_ -= C * dwSol_
+        D.usmv(Scalar(-1), *dwSol_, *wRes_);       // wRes_   -= D * dwSol_
+
+        // -------------------------------------------------------------------
         // Stage 1: Reservoir CPR solve
         // -------------------------------------------------------------------
         stage_timer.start();
