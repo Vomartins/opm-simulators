@@ -31,6 +31,8 @@
 #include <dune/istl/paamg/pinfo.hh>
 #include <dune/istl/solver.hh>
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -153,6 +155,10 @@ public:
     {
         Backend::updateResSolver(*resSolver_);
         Backend::updateResSolver(*resSmoother_);
+
+        if (scaleWell_) {
+            recomputeWellScaling();
+        }
         wellSolver_->preconditioner().update();
     }
 
@@ -264,6 +270,13 @@ private:
     std::unique_ptr<WellOp>      wop_;
     std::unique_ptr<WellSolver>  wellSolver_;
 
+    // Ruiz equilibration scaling for the well sub-system.
+    bool scaleWell_ = false;
+    int ruizIters_ = 3;                         // number of Ruiz equilibration iterations
+    WWMatrix<Scalar> scaledD_;                  // scaled copy of the well-well block
+    WellVectorT<Scalar> wellRowScale_;          // accumulated row scaling factors
+    WellVectorT<Scalar> wellColScale_;          // accumulated column scaling factors
+
     // GPU work vectors (flat scalar buffers) and CPU work vectors (block vectors)
     // are unified via std::optional.  Both ResWork(size_t) and WellWork(size_t)
     // constructors exist, so emplace(n) works for both backends.
@@ -285,6 +298,10 @@ private:
     // -----------------------------------------------------------------------
     // applyWellSolver — applies the well sub-solver.
     //
+    // When scaleWell_ is true the well sub-solver operates on the Ruiz-
+    // equilibrated system  (R·D·C) y = R·b  where R = diag(wellRowScale_)
+    // and C = diag(wellColScale_).  The solution is recovered as x = C·y.
+    //
     // GPU: copies RHS to host, runs CPU FlexibleSolver, copies result back.
     // CPU: copies RHS to scratch, runs FlexibleSolver in-place.
     // -----------------------------------------------------------------------
@@ -292,14 +309,22 @@ private:
     {
         if constexpr (Backend::isGpu) {
             rhs.copyToHost(cpuWRes_);
+            if (scaleWell_)
+                scaleWellVector(cpuWRes_, wellRowScale_);
             Dune::InverseOperatorResult well_result;
             cpuDwSol_ = Scalar(0);
             wellSolver_->apply(cpuDwSol_, cpuWRes_, well_result);
+            if (scaleWell_)
+                scaleWellVector(cpuDwSol_, wellColScale_);
             sol.copyFromHost(cpuDwSol_);
         } else {
-            Dune::InverseOperatorResult well_result;
             *tmp_wRes_ = rhs;
+            if (scaleWell_)
+                scaleWellVector(*tmp_wRes_, wellRowScale_);
+            Dune::InverseOperatorResult well_result;
             wellSolver_->apply(sol, *tmp_wRes_, well_result);
+            if (scaleWell_)
+                scaleWellVector(sol, wellColScale_);
         }
     }
 
@@ -353,11 +378,145 @@ private:
         }
 
         // Well sub-solver — identical for all backends.
-        const auto& cpuWellMatrix = Backend::getWellMatrixCpu(S_);
-        wop_ = std::make_unique<WellOp>(cpuWellMatrix);
+        scaleWell_ = wellprm.get<bool>("scale_well", false);
+        ruizIters_ = wellprm.get<int>("ruiz_iters", 3);
+
+        if (scaleWell_) {
+            // Work on a scaled copy of D so that ILU0 sees the equilibrated matrix.
+            const auto& D = Backend::getWellMatrixCpu(S_);
+            scaledD_ = D;
+            wellRowScale_.resize(D.N());
+            wellColScale_.resize(D.N());
+            computeRuizEquilibration();
+            wop_ = std::make_unique<WellOp>(scaledD_);
+        } else {
+            const auto& cpuWellMatrix = Backend::getWellMatrixCpu(S_);
+            wop_ = std::make_unique<WellOp>(cpuWellMatrix);
+        }
+
         std::function<WellVectorT<Scalar>()> noWeights;
         wellSolver_ = std::make_unique<WellSolver>(
             *wop_, wellprm, noWeights, pressureIndex);
+    }
+
+    // -----------------------------------------------------------------------
+    // Ruiz equilibration for the well sub-system.
+    //
+    // Iteratively computes row and column scalings R, C such that (R·D·C)
+    // has approximately unit infinity-norm rows and columns.  Each iteration:
+    //   r_i = 1 / sqrt( max_j |a_{ij}| )      (row inf-norm)
+    //   c_j = 1 / sqrt( max_i |a_{ij}| )      (col inf-norm)
+    //   A  <- diag(r) · A · diag(c)
+    //   R  <- R · diag(r),  C <- C · diag(c)
+    //
+    // After scaling, solving  (R·D·C) y = R·b  yields x = C·y.
+    // -----------------------------------------------------------------------
+
+    /// Compute Ruiz equilibration on scaledD_ and store in wellRowScale_/wellColScale_.
+    void computeRuizEquilibration()
+    {
+        const auto n = scaledD_.N();
+
+        // Initialise accumulated scalings to identity.
+        for (std::size_t i = 0; i < n; ++i) {
+            wellRowScale_[i] = Scalar(1);
+            wellColScale_[i] = Scalar(1);
+        }
+
+        for (int iter = 0; iter < ruizIters_; ++iter) {
+            // --- Row infinity norms (per scalar row) ---
+            WellVectorT<Scalar> rowNorm(n);
+            for (std::size_t i = 0; i < n; ++i)
+                rowNorm[i] = Scalar(0);
+
+            for (auto row = scaledD_.begin(); row != scaledD_.end(); ++row) {
+                const auto ri = row.index();
+                for (auto col = row->begin(); col != row->end(); ++col) {
+                    for (int l = 0; l < numWellDofs; ++l) {
+                        for (int k = 0; k < numWellDofs; ++k) {
+                            rowNorm[ri][l] = std::max(rowNorm[ri][l],
+                                                      std::abs((*col)[l][k]));
+                        }
+                    }
+                }
+            }
+
+            // --- Column infinity norms (per scalar column) ---
+            WellVectorT<Scalar> colNorm(n);
+            for (std::size_t i = 0; i < n; ++i)
+                colNorm[i] = Scalar(0);
+
+            for (auto row = scaledD_.begin(); row != scaledD_.end(); ++row) {
+                for (auto col = row->begin(); col != row->end(); ++col) {
+                    const auto cj = col.index();
+                    for (int l = 0; l < numWellDofs; ++l) {
+                        for (int k = 0; k < numWellDofs; ++k) {
+                            colNorm[cj][k] = std::max(colNorm[cj][k],
+                                                      std::abs((*col)[l][k]));
+                        }
+                    }
+                }
+            }
+
+            // --- Compute per-iteration scaling factors ---
+            WellVectorT<Scalar> r(n), c(n);
+            for (std::size_t i = 0; i < n; ++i) {
+                for (int l = 0; l < numWellDofs; ++l) {
+                    r[i][l] = (rowNorm[i][l] > Scalar(1e-30))
+                              ? Scalar(1) / std::sqrt(rowNorm[i][l])
+                              : Scalar(1);
+                    c[i][l] = (colNorm[i][l] > Scalar(1e-30))
+                              ? Scalar(1) / std::sqrt(colNorm[i][l])
+                              : Scalar(1);
+                }
+            }
+
+            // --- Apply to scaledD_: A <- diag(r) * A * diag(c) ---
+            for (auto row = scaledD_.begin(); row != scaledD_.end(); ++row) {
+                const auto ri = row.index();
+                for (auto col = row->begin(); col != row->end(); ++col) {
+                    const auto cj = col.index();
+                    for (int l = 0; l < numWellDofs; ++l) {
+                        for (int k = 0; k < numWellDofs; ++k) {
+                            (*col)[l][k] *= r[ri][l] * c[cj][k];
+                        }
+                    }
+                }
+            }
+
+            // --- Accumulate into total scaling ---
+            for (std::size_t i = 0; i < n; ++i) {
+                for (int l = 0; l < numWellDofs; ++l) {
+                    wellRowScale_[i][l] *= r[i][l];
+                    wellColScale_[i][l] *= c[i][l];
+                }
+            }
+        }
+    }
+
+    /// Re-copy D from the system matrix and recompute Ruiz scaling (called in update()).
+    void recomputeWellScaling()
+    {
+        const auto& D = Backend::getWellMatrixCpu(S_);
+        // Copy numerical values only (sparsity pattern is unchanged).
+        for (auto srcRow = D.begin(); srcRow != D.end(); ++srcRow) {
+            const auto ri = srcRow.index();
+            for (auto srcCol = srcRow->begin(); srcCol != srcRow->end(); ++srcCol) {
+                scaledD_[ri][srcCol.index()] = *srcCol;
+            }
+        }
+        computeRuizEquilibration();
+    }
+
+    /// Scale a well vector in-place by the given per-DOF scaling factors.
+    void scaleWellVector(WellVectorT<Scalar>& v,
+                         const WellVectorT<Scalar>& scale) const
+    {
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            for (int l = 0; l < numWellDofs; ++l) {
+                v[i][l] *= scale[i][l];
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
