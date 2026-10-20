@@ -101,6 +101,11 @@ public:
     void setSimulatorReportPointer(SimulatorReportSingle* report) { report_ptr_ = report; }
     SimulatorReportSingle* simulatorReportPointer() const { return report_ptr_; }
 
+    // Public accessors for individual stage operators (used by matrix extraction).
+    ResSolver&  resSolver()   { return *resSolver_; }
+    ResSolver&  resSmoother() { return *resSmoother_; }
+    void applyWellSolve(WellWork& sol, WellWork& rhs) { applyWellSolver(sol, rhs); }
+
     // -----------------------------------------------------------------------
     // Sequential constructor (all backends; also the only constructor for GPU).
     // -----------------------------------------------------------------------

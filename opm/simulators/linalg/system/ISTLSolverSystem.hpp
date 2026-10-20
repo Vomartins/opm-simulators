@@ -20,6 +20,7 @@
 #define OPM_ISTLSOLVERSYSTEM_HEADER_INCLUDED
 
 #include "SystemTypes.hpp"
+#include <cstddef>
 #include <dune/common/matrixconcepts.hh>
 #include <fmt/core.h>
 #include <opm/simulators/linalg/system/CpuSystemBackend.hpp>
@@ -28,6 +29,7 @@
 
 #include <opm/simulators/linalg/FlexibleSolver.hpp>
 #include <opm/simulators/linalg/ISTLSolver.hpp>
+#include <iomanip>
 #include <iostream>
 #include <fstream>
 
@@ -47,6 +49,7 @@ protected:
 
     mutable int localTimeStep_ = 0;
     mutable int lastReportStep_ = -1;
+    mutable int lastSavedStep_ = -1;
 
     // Compile-time validation: SystemPreconditionerFactory and related types
     // are hardcoded for standard 3-phase blackoil (3 reservoir equations, 4 well equations).
@@ -149,152 +152,270 @@ public:
         x = sysX_[_0];
 
         // -----------------------------------------------------
-        // Preconditioned matrix construction for experiment 1
+        // Matrix extraction for experiment 1
+        // Saves: T = S*M^{-1}, S (system matrix),
+        //        M1^{-1} (res CPR), M2^{-1} (well solver),
+        //        M3^{-1} (res smoother)
         // -----------------------------------------------------
 
-        const auto currentStep = this->simulator_.episodeIndex();
-        const auto totalSteps = this->simulator_.vanguard().schedule().size();
-        // const auto timeStep = this->simulator_.timeStepIndex();
-        const auto newtonIter = this->simulator_.problem().iterationContext().iteration();
-
-        //std::cout << "  Total steps: " << totalSteps << std::endl;
-
-        if (currentStep != lastReportStep_) {
-            localTimeStep_ = 0;
-            lastReportStep_ = currentStep;
-        } else {
-            if (newtonIter == 0) {
-                ++localTimeStep_;
-            }
-        }
-
-        std::cout << "Report step: " << currentStep << std::endl;
-        //std::cout << "Time step: " << timeStep << std::endl;
-        std::cout << "Newton iteration: " << newtonIter << std::endl;
-
-        if (localTimeStep_ == 0 && newtonIter == 0) {
-            const auto numOfMatrices = 6;
-            const auto stepSizeMatrices = totalSteps / numOfMatrices;
-            //std::cout << stepSizeMatrices << std::endl;
-            auto saveMatrix = (currentStep + 1) % stepSizeMatrices + 1;
-            if (currentStep == 0) saveMatrix = 1;
-            if (saveMatrix == 1) {
-                std::cout << "  Save matrix: " << saveMatrix << std::endl;
-                std::cout << "      Report step: " << currentStep << std::endl;
-                //std::cout << "      Time step: " << timeStep << std::endl;
-                std::cout << "      Newton iteration: " << newtonIter << std::endl;
-
-                size_t resBlockSize = sysRhs_[_0][1].size();
-                size_t wellBlockSize = sysRhs_[_1][1].size();
-
-                size_t N = numRes * numResDofs + numWell * numWellDofs;
-
-                Dune::DynamicMatrix<Scalar> AM(N, N, 0.0);
-
-                auto storeColumns = [&](const SystemVector<Scalar>& col, size_t idx)
-                {
-                    size_t row = 0;
-                    for (size_t i = 0; i< col[_0].size(); ++i){
-                        for (int c = 0; c < numResDofs; ++c){
-                            AM[row++][idx] = col[_0][i][c];
-                        }
-                    }
-                    for (size_t i = 0; i< col[_1].size(); ++i){
-                        for (int c = 0; c < numWellDofs; ++c){
-                            AM[row++][idx] = col[_1][i][c];
-                        }
-                    }
-                };
-
-                std::cout << "Number of Res Blocks:" << numRes << std::endl;
-                std::cout << "  Blocks size:" << numResDofs << std::endl;
-                std::cout << "Number of Well Blocks:" << numWell << std::endl;
-                std::cout << "  Blocks size:" << numWellDofs << std::endl;
-
-                std::cout << "Total DOFs: " << N << std::endl;
-
-                size_t j_count = 0;
-
-                for (int j = 0; j < numRes; ++j)
-                {
-                    for (int k = 0; k < numResDofs; ++k)
-                    {
-                        SystemVector<Scalar> estd = sysRhs_;
-                        estd = 0.0;
-                        estd[_0][j][k] = 1.0;
-
-                        SystemVector<Scalar> Mcol = sysRhs_;
-                        Mcol = 0.0;
-
-                        sysPrecond_->apply(Mcol, estd);
-
-                        //printSimulatorVector(Mcol, "M^{-1} column");
-
-                        SystemVector<Scalar> AMcol = Mcol;
-                        AMcol = 0.0;
-                        sysMatrix_.mv(Mcol, AMcol); // AMcol = A * col = A * M^{-1} * e
-
-                        //printSimulatorVector(AMcol, "AM^{-1} column");
-                        if (j_count % 1000 == 0) std::cerr << j*numResDofs + k << " ";
-
-                        storeColumns(AMcol, j*numResDofs + k);
-
-                        ++j_count;
-                    }
-                }
-
-                std::cout << std::endl;
-
-                for (int j = 0; j < numWell; ++j)
-                {
-                    for (int k = 0; k < numWellDofs; ++k)
-                    {
-                        SystemVector<Scalar> estd = sysRhs_;
-                        estd = 0.0;
-                        estd[_1][j][k] = 1.0;
-
-                        SystemVector<Scalar> Mcol = sysRhs_;
-                        Mcol = 0.0;
-                        sysPrecond_->apply(Mcol, estd);
-
-                        SystemVector<Scalar> AMcol = Mcol;
-                        AMcol = 0.0;
-                        sysMatrix_.mv(Mcol, AMcol);
-
-                        if (j_count % 1000 == 0) std::cerr << (numRes*numResDofs) + j*numWellDofs + k << " ";
-
-                        storeColumns(AMcol, (numRes*numResDofs) + j*numWellDofs + k);
-
-                        ++j_count;
-                    }
-                }
-
-                std::cout << std::endl;
-
-                std::cout << "j_count: " << j_count << std::endl;
-
-                std::ofstream file(std::format("AM_inv_{}.mtx", currentStep));
-                file << "%%MatrixMarket matrix array real general\n";
-                file << N << " " << N << "\n";
-                // MM array format is column-major
-                for (size_t col = 0; col < N; ++col) {
-                    for (size_t row = 0; row < N; ++row) {
-                        file << AM[row][col] << "\n";
-                        if (row % 1000 == 0 && col % 1000 == 0 && row == col) std::cout << row << " " << col << " /" << std::endl;
-                    }
-                }
-                file << std::flush;
-                file.close();
-                std::cerr << "File written." << std::endl;
-                std::cout << std::endl;
-            }
-        }
-
-
-        // std::exit(1);
-
-
-
+//         const auto currentStep = this->simulator_.episodeIndex();
+//         const auto totalSteps = this->simulator_.vanguard().schedule().size();
+//         const auto newtonIter = this->simulator_.problem().iterationContext().iteration();
+//
+//         if (currentStep != lastReportStep_) {
+//             localTimeStep_ = 0;
+//             lastReportStep_ = currentStep;
+//         } else {
+//             if (newtonIter == 0) {
+//                 ++localTimeStep_;
+//             }
+//         }
+//
+//         std::cout << "Report step: " << currentStep << std::endl;
+//         std::cout << "Newton iteration: " << newtonIter << std::endl;
+//
+//         if (localTimeStep_ == 0 && newtonIter == 0 && currentStep != lastSavedStep_) {
+//             const auto numOfMatrices = 6;
+//             const auto stepSizeMatrices = totalSteps / numOfMatrices;
+//             auto saveMatrix = (currentStep + 1) % stepSizeMatrices + 1;
+//             if (currentStep == 0) saveMatrix = 1;
+//             if (saveMatrix == 1) {
+//                 std::cout << "  Save matrix: " << saveMatrix << std::endl;
+//                 std::cout << "      Report step: " << currentStep << std::endl;
+//                 std::cout << "      Newton iteration: " << newtonIter << std::endl;
+//
+//                 const size_t nResDofs = numRes * numResDofs;
+//                 const size_t nWellDofs = numWell * numWellDofs;
+//                 const size_t N = nResDofs + nWellDofs;
+//
+//                 // Get concrete preconditioner for individual stage access
+//                 auto* precond = dynamic_cast<SysPrecSeq*>(sysPrecond_);
+//
+//                 // Dense matrices: full preconditioned system and individual stages
+//                 Dune::DynamicMatrix<Scalar> AM(N, N, 0.0);
+//                 Dune::DynamicMatrix<Scalar> M1(nResDofs, nResDofs, 0.0);
+//                 Dune::DynamicMatrix<Scalar> M3(nResDofs, nResDofs, 0.0);
+//                 Dune::DynamicMatrix<Scalar> M2(nWellDofs, nWellDofs, 0.0);
+//
+//                 auto storeSysColumn = [&](const SystemVector<Scalar>& col,
+//                                           Dune::DynamicMatrix<Scalar>& mat, size_t idx)
+//                 {
+//                     size_t row = 0;
+//                     for (size_t i = 0; i < col[_0].size(); ++i)
+//                         for (int c = 0; c < numResDofs; ++c)
+//                             mat[row++][idx] = col[_0][i][c];
+//                     for (size_t i = 0; i < col[_1].size(); ++i)
+//                         for (int c = 0; c < numWellDofs; ++c)
+//                             mat[row++][idx] = col[_1][i][c];
+//                 };
+//
+//                 auto storeResColumn = [](const ResVector<Scalar>& col,
+//                                          Dune::DynamicMatrix<Scalar>& mat, size_t idx)
+//                 {
+//                     size_t row = 0;
+//                     for (size_t i = 0; i < col.size(); ++i)
+//                         for (int c = 0; c < numResDofs; ++c)
+//                             mat[row++][idx] = col[i][c];
+//                 };
+//
+//                 auto storeWellColumn = [](const WellVector<Scalar>& col,
+//                                           Dune::DynamicMatrix<Scalar>& mat, size_t idx)
+//                 {
+//                     size_t row = 0;
+//                     for (size_t i = 0; i < col.size(); ++i)
+//                         for (int c = 0; c < numWellDofs; ++c)
+//                             mat[row++][idx] = col[i][c];
+//                 };
+//
+//                 // Pre-allocate work vectors for stage probing
+//                 ResVector<Scalar> resE(numRes), resSol(numRes), resTmp(numRes);
+//                 WellVector<Scalar> wellE(numWell), wellSol(numWell);
+//
+//                 std::cout << "Number of Res Blocks:" << numRes << std::endl;
+//                 std::cout << "  Blocks size:" << numResDofs << std::endl;
+//                 std::cout << "Number of Well Blocks:" << numWell << std::endl;
+//                 std::cout << "  Blocks size:" << numWellDofs << std::endl;
+//                 std::cout << "Total DOFs: " << N << std::endl;
+//
+//                 size_t j_count = 0;
+//
+//                 size_t probeFailures = 0;
+//
+//                 // Reservoir basis vectors: probe T, M1 (CPR), M3 (smoother)
+//                 for (size_t j = 0; j < numRes; ++j)
+//                 {
+//                     for (int k = 0; k < numResDofs; ++k)
+//                     {
+//                         const size_t colIdx = j * numResDofs + k;
+//                         try {
+//                             // Full preconditioner: T = S * M^{-1}
+//                             SystemVector<Scalar> estd = sysRhs_;
+//                             estd = 0.0;
+//                             estd[_0][j][k] = 1.0;
+//                             SystemVector<Scalar> Mcol = sysRhs_;
+//                             Mcol = 0.0;
+//                             sysPrecond_->apply(Mcol, estd);
+//                             SystemVector<Scalar> AMcol = Mcol;
+//                             AMcol = 0.0;
+//                             sysMatrix_.mv(Mcol, AMcol);
+//                             storeSysColumn(AMcol, AM, colIdx);
+//
+//                             // Individual stage probing
+//                             if (precond) {
+//                                 // Stage 1: reservoir CPR solve
+//                                 resE = 0.0;
+//                                 resE[j][k] = 1.0;
+//                                 resSol = 0.0;
+//                                 resTmp = resE;
+//                                 Dune::InverseOperatorResult res_result;
+//                                 precond->resSolver().apply(resSol, resTmp, res_result);
+//                                 storeResColumn(resSol, M1, colIdx);
+//
+//                                 // Stage 2b: reservoir smoother
+//                                 resSol = 0.0;
+//                                 resTmp = resE;
+//                                 precond->resSmoother().apply(resSol, resTmp, res_result);
+//                                 storeResColumn(resSol, M3, colIdx);
+//                             }
+//                         } catch (const std::exception& e) {
+//                             if (probeFailures == 0)
+//                                 std::cerr << "Probe failure at res col " << colIdx << ": " << e.what() << std::endl;
+//                             ++probeFailures;
+//                         }
+//
+//                         if (j_count % 1000 == 0) std::cerr << colIdx << " ";
+//                         ++j_count;
+//                     }
+//                 }
+//
+//                 std::cout << std::endl;
+//
+//                 // Well basis vectors: probe T and M2 (well solver)
+//                 for (size_t j = 0; j < numWell; ++j)
+//                 {
+//                     for (int k = 0; k < numWellDofs; ++k)
+//                     {
+//                         const size_t sysColIdx = nResDofs + j * numWellDofs + k;
+//                         const size_t wellColIdx = j * numWellDofs + k;
+//                         try {
+//                             // Full preconditioner: T = S * M^{-1}
+//                             SystemVector<Scalar> estd = sysRhs_;
+//                             estd = 0.0;
+//                             estd[_1][j][k] = 1.0;
+//                             SystemVector<Scalar> Mcol = sysRhs_;
+//                             Mcol = 0.0;
+//                             sysPrecond_->apply(Mcol, estd);
+//                             SystemVector<Scalar> AMcol = Mcol;
+//                             AMcol = 0.0;
+//                             sysMatrix_.mv(Mcol, AMcol);
+//                             storeSysColumn(AMcol, AM, sysColIdx);
+//
+//                             // Stage 2a / Stage 3: well solver
+//                             if (precond) {
+//                                 wellE = 0.0;
+//                                 wellE[j][k] = 1.0;
+//                                 wellSol = 0.0;
+//                                 precond->applyWellSolve(wellSol, wellE);
+//                                 storeWellColumn(wellSol, M2, wellColIdx);
+//                             }
+//                         } catch (const std::exception& e) {
+//                             if (probeFailures == 0)
+//                                 std::cerr << "Probe failure at well col " << wellColIdx << ": " << e.what() << std::endl;
+//                             ++probeFailures;
+//                         }
+//
+//                         if (j_count % 1000 == 0) std::cerr << sysColIdx << " ";
+//                         ++j_count;
+//                     }
+//                 }
+//
+//                 std::cout << std::endl;
+//                 std::cout << "j_count: " << j_count << std::endl;
+//                 if (probeFailures > 0)
+//                     std::cerr << "Total probe failures: " << probeFailures << " / " << j_count
+//                               << " (failed columns stored as zero)" << std::endl;
+//
+//                 // Save dense matrix in MatrixMarket array format
+//                 auto saveDenseMatrix = [](const Dune::DynamicMatrix<Scalar>& mat,
+//                                           size_t rows, size_t cols,
+//                                           const std::string& filename)
+//                 {
+//                     std::ofstream file(filename);
+//                     file << std::setprecision(17);
+//                     file << "%%MatrixMarket matrix array real general\n";
+//                     file << rows << " " << cols << "\n";
+//                     for (size_t c = 0; c < cols; ++c)
+//                         for (size_t r = 0; r < rows; ++r)
+//                             file << mat[r][c] << "\n";
+//                     file << std::flush;
+//                     file.close();
+//                     std::cerr << filename << " written." << std::endl;
+//                 };
+//
+//                 saveDenseMatrix(AM, N, N, std::format("AM_inv_{}.mtx", currentStep));
+//                 if (precond) {
+//                     saveDenseMatrix(M1, nResDofs, nResDofs, std::format("res_cpr_{}.mtx", currentStep));
+//                     saveDenseMatrix(M3, nResDofs, nResDofs, std::format("res_smoother_{}.mtx", currentStep));
+//                     saveDenseMatrix(M2, nWellDofs, nWellDofs, std::format("well_solver_{}.mtx", currentStep));
+//                 }
+//
+//                 // Save system matrix (sparse, coordinate format)
+//                 // Layout: [ A  C ]   A: numRes*numRes (3x3 blocks)
+//                 //         [ B  D ]   B: numWell*numRes (4x3), C: numRes*numWell (3x4), D: numWell*numWell (4x4)
+//                 {
+//                     const size_t rowOffsetWell = nResDofs;
+//                     const size_t colOffsetWell = nResDofs;
+//
+//                     auto countBCRS = [](const auto& mat, int bRows, int bCols) -> size_t
+//                     {
+//                         size_t count = 0;
+//                         for (auto rowIt = mat.begin(); rowIt != mat.end(); ++rowIt)
+//                             for (auto colIt = rowIt->begin(); colIt != rowIt->end(); ++colIt)
+//                                 count += bRows * bCols;
+//                         return count;
+//                     };
+//
+//                     auto writeBCRS = [](std::ofstream& out, const auto& mat,
+//                                         size_t rowOff, size_t colOff,
+//                                         int bRows, int bCols)
+//                     {
+//                         for (auto rowIt = mat.begin(); rowIt != mat.end(); ++rowIt) {
+//                             for (auto colIt = rowIt->begin(); colIt != rowIt->end(); ++colIt) {
+//                                 const auto& block = *colIt;
+//                                 for (int lr = 0; lr < bRows; ++lr) {
+//                                     for (int lc = 0; lc < bCols; ++lc) {
+//                                         const size_t globalRow = rowOff + rowIt.index() * bRows + lr + 1;
+//                                         const size_t globalCol = colOff + colIt.index() * bCols + lc + 1;
+//                                         out << globalRow << " " << globalCol << " " << block[lr][lc] << "\n";
+//                                     }
+//                                 }
+//                             }
+//                         }
+//                     };
+//
+//                     size_t nnzTotal = 0;
+//                     nnzTotal += countBCRS(*sysMatrix_.A, numResDofs, numResDofs);
+//                     nnzTotal += countBCRS(*sysMatrix_.C, numResDofs, numWellDofs);
+//                     nnzTotal += countBCRS(*sysMatrix_.B, numWellDofs, numResDofs);
+//                     nnzTotal += countBCRS(*sysMatrix_.D, numWellDofs, numWellDofs);
+//
+//                     std::ofstream sysFile(std::format("system_matrix_{}.mtx", currentStep));
+//                     sysFile << std::setprecision(17);
+//                     sysFile << "%%MatrixMarket matrix coordinate real general\n";
+//                     sysFile << N << " " << N << " " << nnzTotal << "\n";
+//
+//                     writeBCRS(sysFile, *sysMatrix_.A, 0,            0,             numResDofs,  numResDofs);
+//                     writeBCRS(sysFile, *sysMatrix_.C, 0,            colOffsetWell, numResDofs,  numWellDofs);
+//                     writeBCRS(sysFile, *sysMatrix_.B, rowOffsetWell, 0,             numWellDofs, numResDofs);
+//                     writeBCRS(sysFile, *sysMatrix_.D, rowOffsetWell, colOffsetWell, numWellDofs, numWellDofs);
+//
+//                     sysFile << std::flush;
+//                     sysFile.close();
+//                     std::cerr << "System matrix file written (" << nnzTotal << " non-zeros)." << std::endl;
+//                 }
+//                 lastSavedStep_ = currentStep;
+//             }
+//         }
 
         return this->checkConvergence(result);
     }
